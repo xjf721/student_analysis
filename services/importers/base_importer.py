@@ -237,7 +237,7 @@ class BaseImporter(ABC):
         # 1. 校验
         valid, errors = self.validate()
         if not valid:
-            result['errors'] = errors
+            result['errors'] = errors if errors else ['数据校验失败（无详细错误）']
             result['message'] = '数据校验失败'
             return result
         
@@ -248,7 +248,7 @@ class BaseImporter(ABC):
         # 3. 解析
         parsed, parse_errors = self.parse()
         if not parsed:
-            result['errors'] = parse_errors
+            result['errors'] = parse_errors if parse_errors else [f'数据解析失败: df有{len(self.df)}行但无有效数据']
             result['message'] = '数据解析失败'
             return result
         
@@ -256,6 +256,8 @@ class BaseImporter(ABC):
         saved, message = self.save()
         result['success'] = saved
         result['message'] = message
+        if not saved:
+            result['errors'] = [message]
         if saved:
             result['imported_count'] = self.import_record.success_count if self.import_record else 0
         
