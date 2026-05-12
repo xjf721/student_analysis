@@ -1,0 +1,100 @@
+
+# 操作系统生成的文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 编辑器/IDE 配置文件
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# 依赖管理
+node_modules/
+vendor/
+bower_components/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+composer.lock
+Gemfile.lock
+
+# 构建输出
+dist/
+build/
+out/
+target/
+*.exe
+*.dll
+*.so
+*.class
+
+# 日志文件
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 运行时数据
+*.pid
+*.seed
+*.pid.lock
+
+# 测试覆盖率报告
+coverage/
+.nyc_output/
+
+# 环境配置文件
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+
+# 临时文件
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+.cache/
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# 其他常见忽略项
+*.bak
+*.backup
+*.old
+*.orig
+
+#python
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+.vscode/
+venv/
+
+test_*.py
+

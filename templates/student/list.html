@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}学生列表 - 教学过程智能分析与预警平台{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <h1 class="m-0">学生列表</h1>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <div class="card">
+            <div class="card-header">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <input type="text" id="search-keyword" class="form-control" placeholder="搜索学号或姓名...">
+                            <div class="input-group-append">
+                                <button class="btn btn-primary" id="search-btn">
+                                    <i class="fas fa-search"></i> 搜索
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>学号</th>
+                            <th>姓名</th>
+                            <th>班级</th>
+                            <th>行为评分</th>
+                            <th>实践评分</th>
+                            <th>风险状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="student-table">
+                        <tr><td colspan="7" class="text-center">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(function() {
+    loadStudents();
+    
+    $('#search-btn').click(function() {
+        loadStudents();
+    });
+    
+    $('#search-keyword').keypress(function(e) {
+        if (e.which == 13) {
+            loadStudents();
+        }
+    });
+    
+    function loadStudents() {
+        var keyword = $('#search-keyword').val();
+        var url = keyword ? '/api/students?keyword=' + encodeURIComponent(keyword) : '/api/students';
+        
+        $.get(url, function(data) {
+            var html = '';
+            if (data.length === 0) {
+                html = '<tr><td colspan="7" class="text-center">暂无数据</td></tr>';
+            } else {
+                data.forEach(function(student) {
+                    var behaviorScore = student.behavior ? student.behavior.behavior_score : '--';
+                    var practiceScore = student.practice ? student.practice.practice_score : '--';
+                    var warningLevel = student.warning ? student.warning.warning_level : 0;
+                    var warningClass = warningLevel >= 3 ? 'badge-danger' : 
+                                       warningLevel >= 2 ? 'badge-warning' : 
+                                       warningLevel >= 1 ? 'badge-info' : 'badge-success';
+                    var warningText = warningLevel >= 3 ? '高危' : 
+                                      warningLevel >= 2 ? '预警' : 
+                                      warningLevel >= 1 ? '关注' : '正常';
+                    
+                    html += '<tr>' +
+                        '<td>' + student.student_no + '</td>' +
+                        '<td>' + student.name + '</td>' +
+                        '<td>' + (student.class_name || '--') + '</td>' +
+                        '<td>' + (typeof behaviorScore === 'number' ? behaviorScore.toFixed(1) : behaviorScore) + '</td>' +
+                        '<td>' + (typeof practiceScore === 'number' ? practiceScore.toFixed(1) : practiceScore) + '</td>' +
+                        '<td><span class="badge ' + warningClass + '">' + warningText + '</span></td>' +
+                        '<td><a href="/student/' + student.id + '" class="btn btn-sm btn-primary">查看画像</a></td>' +
+                        '</tr>';
+                });
+            }
+            $('#student-table').html(html);
+        });
+    }
+});
+</script>
+{% endblock %}

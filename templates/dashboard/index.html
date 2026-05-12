@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}首页概览 - 教学过程智能分析与预警平台{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <h1 class="m-0">首页概览</h1>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <!-- 指标卡片 -->
+        <div class="row">
+            <div class="col-lg-2 col-6">
+                <div class="small-box bg-info">
+                    <div class="inner">
+                        <h3 id="total-students">--</h3>
+                        <p>学生总数</p>
+                    </div>
+                    <div class="icon"><i class="fas fa-user-graduate"></i></div>
+                </div>
+            </div>
+            <div class="col-lg-2 col-6">
+                <div class="small-box bg-success">
+                    <div class="inner">
+                        <h3 id="avg-attendance">--%</h3>
+                        <p>平均到课率</p>
+                    </div>
+                    <div class="icon"><i class="fas fa-calendar-check"></i></div>
+                </div>
+            </div>
+            <div class="col-lg-2 col-6">
+                <div class="small-box bg-primary">
+                    <div class="inner">
+                        <h3 id="avg-behavior">--</h3>
+                        <p>平均行为评分</p>
+                    </div>
+                    <div class="icon"><i class="fas fa-chart-line"></i></div>
+                </div>
+            </div>
+            <div class="col-lg-2 col-6">
+                <div class="small-box bg-warning">
+                    <div class="inner">
+                        <h3 id="warning-count">--</h3>
+                        <p>风险学生数</p>
+                    </div>
+                    <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+                </div>
+            </div>
+            <div class="col-lg-2 col-6">
+                <div class="small-box bg-danger">
+                    <div class="inner">
+                        <h3 id="high-risk-count">--</h3>
+                        <p>高危学生数</p>
+                    </div>
+                    <div class="icon"><i class="fas fa-skull-crossbones"></i></div>
+                </div>
+            </div>
+            <div class="col-lg-2 col-6">
+                <div class="small-box bg-secondary">
+                    <div class="inner">
+                        <h3 id="weak-knowledge">--</h3>
+                        <p>薄弱知识点数</p>
+                    </div>
+                    <div class="icon"><i class="fas fa-book"></i></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 图表区域 -->
+        <div class="row">
+            <!-- 班级画像雷达图 -->
+            <div class="col-lg-6">
+                <div class="card card-primary">
+                    <div class="card-header">
+                        <h3 class="card-title">班级画像雷达图</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="radar-chart" style="height: 350px;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 风险学生排行 -->
+            <div class="col-lg-6">
+                <div class="card card-danger">
+                    <div class="card-header">
+                        <h3 class="card-title">风险学生排行 TOP 10</h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>学号</th>
+                                    <th>姓名</th>
+                                    <th>风险指数</th>
+                                    <th>预警类型</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="warning-table">
+                                <tr><td colspan="5" class="text-center">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <!-- 知识点热力图 -->
+            <div class="col-lg-8">
+                <div class="card card-info">
+                    <div class="card-header">
+                        <h3 class="card-title">知识点掌握热力图</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="heatmap-chart" style="height: 400px;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 薄弱知识点排行 -->
+            <div class="col-lg-4">
+                <div class="card card-warning">
+                    <div class="card-header">
+                        <h3 class="card-title">薄弱知识点排行</h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>知识点</th>
+                                    <th>平均掌握率</th>
+                                </tr>
+                            </thead>
+                            <tbody id="weak-knowledge-table">
+                                <tr><td colspan="2" class="text-center">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(function() {
+    // 加载统计数据
+    loadStats();
+    loadRadarChart();
+    loadWarningRanking();
+    loadHeatmap();
+    loadWeakKnowledge();
+    
+    function loadStats() {
+        $.get('/api/stats', function(data) {
+            $('#total-students').text(data.total_students);
+            $('#avg-attendance').text(data.avg_attendance_rate + '%');
+            $('#avg-behavior').text(data.avg_behavior_score);
+            $('#warning-count').text(data.warning_count);
+            $('#high-risk-count').text(data.high_risk_count);
+            $('#weak-knowledge').text(data.weak_knowledge_count);
+        });
+    }
+    
+    function loadRadarChart() {
+        var chart = echarts.init(document.getElementById('radar-chart'));
+        
+        $.get('/api/radar', function(data) {
+            chart.setOption({
+                tooltip: {},
+                radar: {
+                    indicator: data.indicator
+                },
+                series: [{
+                    type: 'radar',
+                    data: [{
+                        value: data.values,
+                        name: '班级平均'
+                    }]
+                }]
+            });
+        });
+        
+        $(window).resize(function() {
+            chart.resize();
+        });
+    }
+    
+    function loadWarningRanking() {
+        $.get('/api/warning-ranking', function(data) {
+            var html = '';
+            if (data.length === 0) {
+                html = '<tr><td colspan="5" class="text-center">暂无风险学生</td></tr>';
+            } else {
+                data.forEach(function(item) {
+                    var levelClass = item.warning_level >= 3 ? 'text-danger' : 
+                                     item.warning_level >= 2 ? 'text-warning' : 'text-info';
+                    html += '<tr>' +
+                        '<td>' + item.student_no + '</td>' +
+                        '<td>' + item.name + '</td>' +
+                        '<td class="' + levelClass + '"><strong>' + item.warning_score.toFixed(1) + '</strong></td>' +
+                        '<td>' + item.warning_type + '</td>' +
+                        '<td><a href="/student/' + item.student_id + '" class="btn btn-sm btn-primary">查看</a></td>' +
+                        '</tr>';
+                });
+            }
+            $('#warning-table').html(html);
+        });
+    }
+    
+    function loadHeatmap() {
+        var chart = echarts.init(document.getElementById('heatmap-chart'));
+        
+        $.get('/api/heatmap', function(data) {
+            chart.setOption({
+                tooltip: {
+                    position: 'top',
+                    formatter: function(params) {
+                        return data.students[params.value[0]] + '<br/>' +
+                               data.knowledge[params.value[1]] + '<br/>' +
+                               '掌握率: ' + params.value[2].toFixed(1) + '%';
+                    }
+                },
+                grid: {
+                    left: '15%',
+                    right: '10%',
+                    bottom: '20%',
+                    top: '5%'
+                },
+                xAxis: {
+                    type: 'category',
+                    data: data.knowledge,
+                    splitArea: { show: true },
+                    axisLabel: { rotate: 45, fontSize: 10 }
+                },
+                yAxis: {
+                    type: 'category',
+                    data: data.students,
+                    splitArea: { show: true }
+                },
+                visualMap: {
+                    min: 0,
+                    max: 100,
+                    calculable: true,
+                    orient: 'horizontal',
+                    left: 'center',
+                    bottom: '0%',
+                    inRange: {
+                        color: ['#d73027', '#fee08b', '#1a9850']
+                    }
+                },
+                series: [{
+                    type: 'heatmap',
+                    data: data.data,
+                    label: { show: false },
+                    emphasis: {
+                        itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0, 0, 0, 0.5)' }
+                    }
+                }]
+            });
+        });
+        
+        $(window).resize(function() {
+            chart.resize();
+        });
+    }
+    
+    function loadWeakKnowledge() {
+        $.get('/api/knowledge-ranking', function(data) {
+            var html = '';
+            if (data.length === 0) {
+                html = '<tr><td colspan="2" class="text-center">暂无数据</td></tr>';
+            } else {
+                data.forEach(function(item) {
+                    var colorClass = item.avg_mastery_rate < 40 ? 'text-danger' : 'text-warning';
+                    html += '<tr>' +
+                        '<td>' + item.knowledge_name + '</td>' +
+                        '<td class="' + colorClass + '"><strong>' + item.avg_mastery_rate.toFixed(1) + '%</strong></td>' +
+                        '</tr>';
+                });
+            }
+            $('#weak-knowledge-table').html(html);
+        });
+    }
+});
+</script>
+{% endblock %}

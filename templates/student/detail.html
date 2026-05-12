@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}学生画像 - 教学过程智能分析与预警平台{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <h1 class="m-0">学生画像</h1>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <!-- 基础信息 -->
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card card-primary">
+                    <div class="card-header">
+                        <h3 class="card-title">基础信息</h3>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-borderless">
+                            <tr><th width="100">学号</th><td id="student-no">--</td></tr>
+                            <tr><th>姓名</th><td id="student-name">--</td></tr>
+                            <tr><th>班级</th><td id="student-class">--</td></tr>
+                            <tr><th>专业</th><td id="student-major">--</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card card-info">
+                    <div class="card-header">
+                        <h3 class="card-title">理论 vs 实践</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="theory-practice-chart" style="height: 200px;"></div>
+                        <p class="text-center mt-2">
+                            <span class="badge" id="theory-practice-type">--</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card card-warning">
+                    <div class="card-header">
+                        <h3 class="card-title">风险状态</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center">
+                            <h1 id="warning-score">--</h1>
+                            <span class="badge" id="warning-level">--</span>
+                        </div>
+                        <p class="text-muted mt-2" id="warning-reason">--</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 学习行为雷达图 -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card card-success">
+                    <div class="card-header">
+                        <h3 class="card-title">学习行为雷达图</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="radar-chart" style="height: 350px;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card card-danger">
+                    <div class="card-header">
+                        <h3 class="card-title">薄弱知识点</h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>知识点</th>
+                                    <th>掌握率</th>
+                                    <th>等级</th>
+                                </tr>
+                            </thead>
+                            <tbody id="weak-points-table">
+                                <tr><td colspan="3" class="text-center">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(function() {
+    var studentId = '{{ student_id }}';
+    
+    loadStudentDetail();
+    loadRadarChart();
+    loadTheoryPractice();
+    loadWeakPoints();
+    
+    function loadStudentDetail() {
+        $.get('/api/student/' + studentId, function(data) {
+            $('#student-no').text(data.student_no);
+            $('#student-name').text(data.name);
+            $('#student-class').text(data.class_name || '--');
+            $('#student-major').text(data.major || '--');
+            
+            if (data.warning) {
+                $('#warning-score').text(data.warning.warning_score.toFixed(1));
+                var levelClass = data.warning.warning_level >= 3 ? 'badge-danger' : 
+                                 data.warning.warning_level >= 2 ? 'badge-warning' : 
+                                 data.warning.warning_level >= 1 ? 'badge-info' : 'badge-success';
+                $('#warning-level').attr('class', 'badge ' + levelClass).text(data.warning.warning_level_name);
+                $('#warning-reason').text(data.warning.warning_reason);
+            } else {
+                $('#warning-score').text('0');
+                $('#warning-level').attr('class', 'badge badge-success').text('正常');
+                $('#warning-reason').text('暂无风险');
+            }
+        });
+    }
+    
+    function loadRadarChart() {
+        var chart = echarts.init(document.getElementById('radar-chart'));
+        
+        $.get('/api/student/' + studentId + '/radar', function(data) {
+            chart.setOption({
+                tooltip: {},
+                radar: {
+                    indicator: data.indicator
+                },
+                series: [{
+                    type: 'radar',
+                    data: [{
+                        value: data.values,
+                        name: '学习行为'
+                    }]
+                }]
+            });
+        });
+        
+        $(window).resize(function() { chart.resize(); });
+    }
+    
+    function loadTheoryPractice() {
+        var chart = echarts.init(document.getElementById('theory-practice-chart'));
+        
+        $.get('/api/student/' + studentId + '/theory-practice', function(data) {
+            chart.setOption({
+                tooltip: {},
+                xAxis: { type: 'category', data: ['理论', '实践'] },
+                yAxis: { type: 'value', max: 100 },
+                series: [{
+                    type: 'bar',
+                    data: [
+                        { value: data.theory_score, itemStyle: { color: '#007bff' } },
+                        { value: data.practice_score, itemStyle: { color: '#28a745' } }
+                    ],
+                    label: { show: true, position: 'top' }
+                }]
+            });
+            
+            var typeClass = data.type === '双强' ? 'badge-success' : 
+                            data.type === '双弱' ? 'badge-danger' :
+                            data.type === '理论强实践弱' ? 'badge-warning' : 'badge-info';
+            $('#theory-practice-type').attr('class', 'badge ' + typeClass).text(data.type);
+        });
+        
+        $(window).resize(function() { chart.resize(); });
+    }
+    
+    function loadWeakPoints() {
+        $.get('/api/student/' + studentId + '/weak-points', function(data) {
+            var html = '';
+            if (data.length === 0) {
+                html = '<tr><td colspan="3" class="text-center">暂无薄弱知识点</td></tr>';
+            } else {
+                data.forEach(function(item) {
+                    var levelClass = item.mastery_level === 0 ? 'badge-danger' : 'badge-warning';
+                    html += '<tr>' +
+                        '<td>' + item.knowledge_name + '</td>' +
+                        '<td class="text-danger">' + item.mastery_rate.toFixed(1) + '%</td>' +
+                        '<td><span class="badge ' + levelClass + '">' + item.mastery_level_name + '</span></td>' +
+                        '</tr>';
+                });
+            }
+            $('#weak-points-table').html(html);
+        });
+    }
+});
+</script>
+{% endblock %}

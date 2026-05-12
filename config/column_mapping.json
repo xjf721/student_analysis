@@ -1,0 +1,109 @@
+{
+  "column_mappings": {
+    "student_no": {
+      "canonical": "学号",
+      "aliases": ["用户名", "账号", "student_no", "studentno", "id", "编号"]
+    },
+    "name": {
+      "canonical": "姓名",
+      "aliases": ["学生", "名字", "name", "学生姓名", "真实姓名", "用户名"]
+    },
+    "class_name": {
+      "canonical": "班级",
+      "aliases": ["所属班级", "班级名称", "行政班", "class"]
+    },
+    "major": {
+      "canonical": "专业",
+      "aliases": ["所属专业", "专业名称", "major"]
+    },
+    "attendance_rate": {
+      "canonical": "到课率",
+      "aliases": ["学生到课率", "出勤率", "签到率"]
+    },
+    "ppt_view_rate": {
+      "canonical": "课件观看率",
+      "aliases": ["PPT查看率", "课件查看率", "PPT观看率", "PPT浏览率"]
+    },
+    "video_finish_rate": {
+      "canonical": "视频完成率",
+      "aliases": ["学生视频完成率", "视频观看率", "视频学习率"]
+    },
+    "exercise_submit_rate": {
+      "canonical": "作答率",
+      "aliases": ["学生作答率", "作业提交率", "答题率"]
+    },
+    "exercise_score_rate": {
+      "canonical": "得分率",
+      "aliases": ["学生得分率", "作业得分率", "正确率"]
+    },
+    "discussion_count": {
+      "canonical": "学生发帖数",
+      "aliases": ["讨论次数", "发帖数", "发帖"]
+    },
+    "reply_count": {
+      "canonical": "学生回帖数",
+      "aliases": ["回复次数", "回帖数", "回帖"]
+    },
+    "mastery_rate": {
+      "canonical": "知识点掌握率",
+      "aliases": ["掌握率", "知识点掌握度"]
+    },
+    "completion_rate": {
+      "canonical": "完成率",
+      "aliases": ["学习完成率", "进度"]
+    },
+    "correct_rate": {
+      "canonical": "正确率",
+      "aliases": ["答题正确率", "正确率"]
+    },
+    "activity_score": {
+      "canonical": "活跃度",
+      "aliases": ["活跃度得分", "活跃分", "activity"]
+    },
+    "total_score": {
+      "canonical": "总成绩",
+      "aliases": ["总分", "total", "最终成绩"]
+    },
+    "avg_experiment_score": {
+      "canonical": "实验平均分",
+      "aliases": ["平均分", "平均成绩", "实验成绩"]
+    }
+  },
+  "file_type_patterns": {
+    "rainclass_process": {
+      "name": "雨课堂-学习过程数据",
+      "filename_keywords": ["雨课堂"],
+      "exclude_keywords": ["汇总", "知识图谱", "明细"],
+      "required_columns": ["学号", "姓名"],
+      "sheet_keywords": ["学习过程数据"]
+    },
+    "rainclass_summary": {
+      "name": "雨课堂-学生汇总",
+      "filename_keywords": ["雨课堂", "汇总"],
+      "required_columns": ["学号"],
+      "sheet_keywords": ["数据结构", "汇总"]
+    },
+    "rainclass_knowledge": {
+      "name": "雨课堂-知识图谱明细",
+      "filename_keywords": ["雨课堂", "知识图谱", "明细"],
+      "required_columns": [],
+      "sheet_keywords": ["数据结构", "知识"]
+    },
+    "educoder_total": {
+      "name": "头歌-总成绩",
+      "filename_keywords": ["头歌", "educoder"],
+      "exclude_keywords": ["活跃度", "作业成绩"],
+      "required_columns": []
+    },
+    "educoder_activity": {
+      "name": "头歌-活跃度",
+      "filename_keywords": ["头歌", "educoder", "活跃度"],
+      "required_columns": []
+    },
+    "educoder_assignment": {
+      "name": "头歌-作业成绩",
+      "filename_keywords": ["头歌", "educoder", "作业成绩"],
+      "required_columns": []
+    }
+  }
+}

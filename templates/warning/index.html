@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}风险预警 - 教学过程智能分析与预警平台{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <h1 class="m-0">风险预警</h1>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <!-- 统计卡片 -->
+        <div class="row">
+            <div class="col-md-3">
+                <div class="small-box bg-success">
+                    <div class="inner">
+                        <h3 id="normal-count">--</h3>
+                        <p>正常</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="small-box bg-info">
+                    <div class="inner">
+                        <h3 id="attention-count">--</h3>
+                        <p>关注</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="small-box bg-warning">
+                    <div class="inner">
+                        <h3 id="warning-count">--</h3>
+                        <p>预警</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="small-box bg-danger">
+                    <div class="inner">
+                        <h3 id="high-risk-count">--</h3>
+                        <p>高危</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <!-- 预警类型分布 -->
+            <div class="col-md-4">
+                <div class="card card-info">
+                    <div class="card-header">
+                        <h3 class="card-title">预警类型分布</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="type-chart" style="height: 300px;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 预警等级分布 -->
+            <div class="col-md-4">
+                <div class="card card-warning">
+                    <div class="card-header">
+                        <h3 class="card-title">预警等级分布</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="level-chart" style="height: 300px;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 操作面板 -->
+            <div class="col-md-4">
+                <div class="card card-primary">
+                    <div class="card-header">
+                        <h3 class="card-title">操作</h3>
+                    </div>
+                    <div class="card-body">
+                        <p>点击下方按钮重新分析所有学生的风险情况：</p>
+                        <button class="btn btn-primary btn-block" id="refresh-btn">
+                            <i class="fas fa-sync-alt"></i> 重新分析风险
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 预警学生列表 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card card-danger">
+                    <div class="card-header">
+                        <h3 class="card-title">风险学生列表</h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>学号</th>
+                                    <th>姓名</th>
+                                    <th>风险指数</th>
+                                    <th>等级</th>
+                                    <th>类型</th>
+                                    <th>原因</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="warning-table">
+                                <tr><td colspan="7" class="text-center">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(function() {
+    loadStatistics();
+    loadTypeChart();
+    loadLevelChart();
+    loadWarningStudents();
+    
+    $('#refresh-btn').click(function() {
+        $(this).prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> 分析中...');
+        
+        $.post('/api/warning/refresh', function(data) {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('分析失败: ' + data.message);
+                $('#refresh-btn').prop('disabled', false).html('<i class="fas fa-sync-alt"></i> 重新分析风险');
+            }
+        });
+    });
+    
+    function loadStatistics() {
+        $.get('/api/warning/statistics', function(data) {
+            $('#normal-count').text(data.by_level['正常'] || 0);
+            $('#attention-count').text(data.by_level['关注'] || 0);
+            $('#warning-count').text(data.by_level['预警'] || 0);
+            $('#high-risk-count').text(data.by_level['高危'] || 0);
+        });
+    }
+    
+    function loadTypeChart() {
+        var chart = echarts.init(document.getElementById('type-chart'));
+        
+        $.get('/api/warning/distribution', function(data) {
+            chart.setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie',
+                    radius: '60%',
+                    data: data.types.map(function(type, i) {
+                        return { name: type, value: data.counts[i] };
+                    })
+                }]
+            });
+        });
+        
+        $(window).resize(function() { chart.resize(); });
+    }
+    
+    function loadLevelChart() {
+        var chart = echarts.init(document.getElementById('level-chart'));
+        
+        $.get('/api/warning/statistics', function(data) {
+            chart.setOption({
+                tooltip: { trigger: 'item' },
+                series: [{
+                    type: 'pie',
+                    radius: '60%',
+                    data: [
+                        { name: '正常', value: data.by_level['正常'] || 0, itemStyle: { color: '#28a745' } },
+                        { name: '关注', value: data.by_level['关注'] || 0, itemStyle: { color: '#17a2b8' } },
+                        { name: '预警', value: data.by_level['预警'] || 0, itemStyle: { color: '#ffc107' } },
+                        { name: '高危', value: data.by_level['高危'] || 0, itemStyle: { color: '#dc3545' } }
+                    ]
+                }]
+            });
+        });
+        
+        $(window).resize(function() { chart.resize(); });
+    }
+    
+    function loadWarningStudents() {
+        $.get('/api/warning/students?limit=50', function(data) {
+            var html = '';
+            if (data.length === 0) {
+                html = '<tr><td colspan="7" class="text-center">暂无风险学生</td></tr>';
+            } else {
+                data.forEach(function(item) {
+                    var levelClass = item.warning_level >= 3 ? 'badge-danger' : 
+                                     item.warning_level >= 2 ? 'badge-warning' : 'badge-info';
+                    html += '<tr>' +
+                        '<td>' + item.student_no + '</td>' +
+                        '<td>' + item.name + '</td>' +
+                        '<td class="text-danger"><strong>' + item.warning_score.toFixed(1) + '</strong></td>' +
+                        '<td><span class="badge ' + levelClass + '">' + item.warning_level_name + '</span></td>' +
+                        '<td>' + item.warning_type + '</td>' +
+                        '<td><small>' + item.warning_reason + '</small></td>' +
+                        '<td><a href="/student/' + item.student_id + '" class="btn btn-sm btn-primary">查看画像</a></td>' +
+                        '</tr>';
+                });
+            }
+            $('#warning-table').html(html);
+        });
+    }
+});
+</script>
+{% endblock %}

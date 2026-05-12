@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block title %}知识点分析 - 教学过程智能分析与预警平台{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <h1 class="m-0">知识点分析</h1>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <!-- 知识点掌握率排行 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card card-primary">
+                    <div class="card-header">
+                        <h3 class="card-title">知识点掌握率排行</h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th width="50">排名</th>
+                                    <th>知识点</th>
+                                    <th>平均掌握率</th>
+                                    <th>学生数</th>
+                                    <th>最低</th>
+                                    <th>最高</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="knowledge-table">
+                                <tr><td colspan="7" class="text-center">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 知识点热力图 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card card-info">
+                    <div class="card-header">
+                        <h3 class="card-title">知识点掌握热力图</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="heatmap-chart" style="height: 500px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(function() {
+    loadKnowledgeStatistics();
+    loadHeatmap();
+    
+    function loadKnowledgeStatistics() {
+        $.get('/api/knowledge/statistics', function(data) {
+            var html = '';
+            if (data.length === 0) {
+                html = '<tr><td colspan="7" class="text-center">暂无数据</td></tr>';
+            } else {
+                data.forEach(function(item, index) {
+                    var rateClass = item.avg_mastery_rate < 40 ? 'text-danger' : 
+                                    item.avg_mastery_rate < 60 ? 'text-warning' : 'text-success';
+                    html += '<tr>' +
+                        '<td>' + (index + 1) + '</td>' +
+                        '<td>' + item.knowledge_name + '</td>' +
+                        '<td class="' + rateClass + '"><strong>' + item.avg_mastery_rate.toFixed(1) + '%</strong></td>' +
+                        '<td>' + item.student_count + '</td>' +
+                        '<td>' + item.min_rate.toFixed(1) + '%</td>' +
+                        '<td>' + item.max_rate.toFixed(1) + '%</td>' +
+                        '<td><button class="btn btn-sm btn-outline-primary view-students" data-knowledge="' + item.knowledge_name + '">查看学生</button></td>' +
+                        '</tr>';
+                });
+            }
+            $('#knowledge-table').html(html);
+        });
+    }
+    
+    function loadHeatmap() {
+        var chart = echarts.init(document.getElementById('heatmap-chart'));
+        
+        $.get('/api/knowledge/heatmap?student_limit=40&knowledge_limit=20', function(data) {
+            chart.setOption({
+                tooltip: {
+                    position: 'top',
+                    formatter: function(params) {
+                        return data.students[params.value[0]] + '<br/>' +
+                               data.knowledge[params.value[1]] + '<br/>' +
+                               '掌握率: ' + params.value[2].toFixed(1) + '%';
+                    }
+                },
+                grid: {
+                    left: '10%',
+                    right: '5%',
+                    bottom: '15%',
+                    top: '5%'
+                },
+                xAxis: {
+                    type: 'category',
+                    data: data.knowledge,
+                    splitArea: { show: true },
+                    axisLabel: { rotate: 45, fontSize: 10 }
+                },
+                yAxis: {
+                    type: 'category',
+                    data: data.students,
+                    splitArea: { show: true }
+                },
+                visualMap: {
+                    min: 0,
+                    max: 100,
+                    calculable: true,
+                    orient: 'horizontal',
+                    left: 'center',
+                    bottom: '0%',
+                    inRange: {
+                        color: ['#d73027', '#fee08b', '#1a9850']
+                    }
+                },
+                series: [{
+                    type: 'heatmap',
+                    data: data.data,
+                    label: { show: false }
+                }]
+            });
+        });
+        
+        $(window).resize(function() { chart.resize(); });
+    }
+});
+</script>
+{% endblock %}

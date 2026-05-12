@@ -1,0 +1,30 @@
+# 教学过程智能分析与预警平台 - 依赖清单
+
+# Web框架
+Flask==3.0.0
+Werkzeug==3.0.1
+
+# ORM
+SQLAlchemy==2.0.23
+Flask-SQLAlchemy==3.1.1
+
+# 数据库驱动
+PyMySQL==1.1.0
+cryptography==41.0.7
+
+# 数据分析
+pandas==2.1.4
+openpyxl==3.1.2
+xlrd==2.0.1
+
+# 文件上传
+Flask-Uploads==0.2.1
+
+# 工具库
+python-dotenv==1.0.0
+
+# 日志增强（可选）
+colorlog==6.8.0
+
+# 开发工具
+flask-shell-ipython==0.4.1

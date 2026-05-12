@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}数据导入 - 教学过程智能分析与预警平台{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <h1 class="m-0">数据导入</h1>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <div class="row">
+            <!-- 文件上传 -->
+            <div class="col-md-6">
+                <div class="card card-primary">
+                    <div class="card-header">
+                        <h3 class="card-title">上传数据文件</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="callout callout-info">
+                            <h5>支持的文件类型</h5>
+                            <ul class="mb-0">
+                                <li><strong>雨课堂</strong>：学习过程数据、学生汇总表（.xlsx, .xls）</li>
+                                <li><strong>头歌</strong>：总成绩、活跃度、作业成绩（.xlsx, .xls）</li>
+                            </ul>
+                        </div>
+                        
+                        <form id="upload-form" enctype="multipart/form-data">
+                            <div class="form-group">
+                                <label>选择文件</label>
+                                <div class="input-group">
+                                    <div class="custom-file">
+                                        <input type="file" class="custom-file-input" id="file-input" name="file" accept=".xlsx,.xls">
+                                        <label class="custom-file-label" for="file-input">选择文件...</label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary btn-block">
+                                <i class="fas fa-upload"></i> 上传并导入
+                            </button>
+                        </form>
+                        
+                        <div id="upload-result" class="mt-3" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 操作面板 -->
+            <div class="col-md-6">
+                <div class="card card-warning">
+                    <div class="card-header">
+                        <h3 class="card-title">分析操作</h3>
+                    </div>
+                    <div class="card-body">
+                        <p>导入数据后，点击下方按钮进行数据分析：</p>
+                        
+                        <button class="btn btn-warning btn-block mb-3" id="analyze-btn">
+                            <i class="fas fa-cogs"></i> 一键重新分析
+                        </button>
+                        
+                        <div class="callout callout-warning">
+                            <small>分析将计算：行为评分、实践评分、知识点掌握、风险预警</small>
+                        </div>
+                        
+                        <div id="analyze-result" class="mt-3" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 导入日志 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card card-info">
+                    <div class="card-header">
+                        <h3 class="card-title">导入日志</h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>文件名</th>
+                                    <th>类型</th>
+                                    <th>状态</th>
+                                    <th>成功</th>
+                                    <th>失败</th>
+                                    <th>时间</th>
+                                </tr>
+                            </thead>
+                            <tbody id="import-log-table">
+                                <tr><td colspan="6" class="text-center">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(function() {
+    loadImportLogs();
+    
+    // 文件选择显示文件名
+    $('#file-input').change(function() {
+        var fileName = $(this).val().split('\\').pop();
+        $(this).next('.custom-file-label').html(fileName || '选择文件...');
+    });
+    
+    // 上传文件
+    $('#upload-form').submit(function(e) {
+        e.preventDefault();
+        
+        var formData = new FormData(this);
+        
+        $('#upload-result').show().html('<div class="alert alert-info">上传中...</div>');
+        
+        $.ajax({
+            url: '/api/import/upload',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(data) {
+                if (data.success) {
+                    $('#upload-result').html(
+                        '<div class="alert alert-success">' +
+                        '<strong>导入成功！</strong><br>' +
+                        '类型: ' + data.import_type + '<br>' +
+                        '导入数量: ' + data.imported_count +
+                        '</div>'
+                    );
+                    loadImportLogs();
+                } else {
+                    var errors = data.errors ? data.errors.join('<br>') : data.message;
+                    $('#upload-result').html(
+                        '<div class="alert alert-danger">' +
+                        '<strong>导入失败</strong><br>' + errors +
+                        '</div>'
+                    );
+                }
+            },
+            error: function(xhr) {
+                $('#upload-result').html(
+                    '<div class="alert alert-danger">上传失败: ' + (xhr.responseJSON ? xhr.responseJSON.message : '未知错误') + '</div>'
+                );
+            }
+        });
+    });
+    
+    // 一键分析
+    $('#analyze-btn').click(function() {
+        $(this).prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> 分析中...');
+        
+        $.post('/api/import/analyze', function(data) {
+            if (data.success) {
+                var html = '<div class="alert alert-success"><strong>分析完成！</strong><ul>';
+                for (var key in data.results) {
+                    html += '<li>' + key + ': ' + data.results[key].message + '</li>';
+                }
+                html += '</ul></div>';
+                $('#analyze-result').show().html(html);
+            } else {
+                $('#analyze-result').show().html('<div class="alert alert-danger">分析失败: ' + data.message + '</div>');
+            }
+        }).always(function() {
+            $('#analyze-btn').prop('disabled', false).html('<i class="fas fa-cogs"></i> 一键重新分析');
+        });
+    });
+    
+    function loadImportLogs() {
+        $.get('/api/import/records', function(data) {
+            var html = '';
+            if (data.length === 0) {
+                html = '<tr><td colspan="6" class="text-center">暂无导入记录</td></tr>';
+            } else {
+                data.forEach(function(item) {
+                    var statusClass = item.import_status === '成功' ? 'badge-success' : 
+                                      item.import_status === '失败' ? 'badge-danger' : 'badge-warning';
+                    html += '<tr>' +
+                        '<td>' + item.filename + '</td>' +
+                        '<td>' + item.import_type + '</td>' +
+                        '<td><span class="badge ' + statusClass + '">' + item.import_status + '</span></td>' +
+                        '<td>' + item.success_count + '</td>' +
+                        '<td>' + item.failed_count + '</td>' +
+                        '<td>' + item.created_at + '</td>' +
+                        '</tr>';
+                });
+            }
+            $('#import-log-table').html(html);
+        });
+    }
+});
+</script>
+{% endblock %}

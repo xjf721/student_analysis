@@ -1,0 +1,6 @@
+# requirements.txt
+pandas
+pymysql
+sqlalchemy
+openpyxl
+xlrd
