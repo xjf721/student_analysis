@@ -26,9 +26,11 @@ class KnowledgeRepository:
     
     @staticmethod
     def get_all_knowledge_names() -> List[str]:
-        """获取所有知识点名称"""
+        """获取所有知识点名称（排除内部占位符）"""
         results = db.session.query(
             StudentKnowledgeMastery.knowledge_name
+        ).filter(
+            StudentKnowledgeMastery.knowledge_name != '__汇总__'
         ).distinct().all()
         
         return [r[0] for r in results]

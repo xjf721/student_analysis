@@ -47,6 +47,7 @@ def match_column_name(actual_col: str) -> Optional[str]:
     支持：
     - 精确匹配标准名称
     - 精确匹配别名
+    - 自动去除Excel常见格式后缀（如(%)、(分)、（%）等）
     
     Args:
         actual_col: 实际列名
@@ -59,15 +60,28 @@ def match_column_name(actual_col: str) -> Optional[str]:
     
     actual_col_clean = str(actual_col).strip().replace('\n', '')
     
-    # 1. 精确匹配标准名称
-    for field, mapping in mappings.items():
-        if actual_col_clean == mapping.get('canonical'):
-            return mapping['canonical']
+    def _normalize(s):
+        s = str(s).strip().replace('\n', '')
+        s = re.sub(r'[(（][^)）]*[)）]', '', s).strip()
+        s = re.sub(r'[（(]\s*%?\s*[）)]', '', s).strip()
+        return s
     
-    # 2. 精确匹配别名
+    actual_normalized = _normalize(actual_col_clean)
+    
+    # 1. 精确匹配标准名称（原始和归一化后）
+    for field, mapping in mappings.items():
+        canonical = mapping.get('canonical')
+        if actual_col_clean == canonical:
+            return canonical
+        if actual_normalized == canonical:
+            return canonical
+    
+    # 2. 匹配别名（原始和归一化后）
     for field, mapping in mappings.items():
         aliases = mapping.get('aliases', [])
         if actual_col_clean in aliases:
+            return mapping['canonical']
+        if actual_normalized in aliases:
             return mapping['canonical']
     
     return None
@@ -211,8 +225,8 @@ def clean_student_no(value: Any) -> Optional[str]:
         except:
             pass
     
-    # 去除前导零（保留至少一位）
-    # student_no = student_no.lstrip('0') or '0'
+    # 去除前导零（统一格式，防止Excel不同单元格格式导致重复学生）
+    student_no = student_no.lstrip('0') or '0'
     
     return student_no if student_no else None
 

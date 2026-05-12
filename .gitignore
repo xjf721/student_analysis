@@ -96,5 +96,8 @@ build/
 .vscode/
 venv/
 
+uploads/*.xlsx
+uploads/*.xls
 test_*.py
 
+~$*.*

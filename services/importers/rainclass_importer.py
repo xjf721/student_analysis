@@ -127,7 +127,7 @@ class RainClassSummaryImporter(BaseImporter):
         
         for data in self.parsed_data:
             try:
-                student = Student.get_by_student_no(data['student_no'])
+                student = Student.find_by_student_no_flex(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
@@ -142,10 +142,11 @@ class RainClassSummaryImporter(BaseImporter):
                     # 关联班级（如果学生还没有班级）
                     if class_id and not student.class_id:
                         student.class_id = class_id
-                    
-                    db.session.commit()
                 
-                # 更新或创建知识点掌握概览记录（使用一个特殊的知识点名称标识汇总）
+                # 更新或创建知识点掌握概览记录
+                # '__汇总__' 为内部占位符，存储学生在所有知识点上的整体掌握率，
+                # 来源于雨课堂学生汇总表的"知识点掌握率"列，非Excel中的实际知识点名称。
+                # 该占位符已在所有对外API中过滤，前端不可见。
                 mastery = StudentKnowledgeMastery.get_student_knowledge(
                     student.id, '__汇总__'
                 )
@@ -342,7 +343,7 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
         
         for data in self.parsed_data:
             try:
-                student = Student.get_by_student_no(data['student_no'])
+                student = Student.find_by_student_no_flex(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
@@ -353,7 +354,6 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
                 else:
                     if class_id and not student.class_id:
                         student.class_id = class_id
-                        db.session.commit()
                 
                 mastery = StudentKnowledgeMastery.get_student_knowledge(
                     student.id, data['knowledge_name']
@@ -624,7 +624,7 @@ class RainClassImporter(BaseImporter):
         for data in self.parsed_data:
             try:
                 # 查找或创建学生
-                student = Student.get_by_student_no(data['student_no'])
+                student = Student.find_by_student_no_flex(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
@@ -640,8 +640,6 @@ class RainClassImporter(BaseImporter):
                     # 关联班级（如果学生还没有班级）
                     if class_id and not student.class_id:
                         student.class_id = class_id
-                    
-                    db.session.commit()
                 
                 # 更新或创建行为数据
                 behavior = StudentBehavior.get_by_student_id(student.id)
@@ -658,7 +656,7 @@ class RainClassImporter(BaseImporter):
                 
                 # 计算综合评分
                 behavior.behavior_score = behavior.calculate_behavior_score()
-                behavior.attendance_level = StudentBehavior.calculate_mastery_level(
+                behavior.attendance_level = StudentKnowledgeMastery.calculate_mastery_level(
                     behavior.attendance_rate
                 )
                 
@@ -732,16 +730,25 @@ class RainClassKnowledgeImporter(BaseImporter):
         
         success_count = 0
         
+        # 获取或创建班级
+        class_id = self._get_or_create_class()
+        
         for data in self.parsed_data:
             try:
                 # 查找或创建学生
-                student = Student.get_by_student_no(data['student_no'])
+                student = Student.find_by_student_no_flex(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
-                        name=data['name']
+                        name=data['name'],
+                        class_id=class_id
                     )
                     student.save()
+                else:
+                    if data['name'] and student.name != data['name']:
+                        student.name = data['name']
+                    if class_id and not student.class_id:
+                        student.class_id = class_id
                 
                 # 更新或创建知识点掌握记录
                 mastery = StudentKnowledgeMastery.get_student_knowledge(

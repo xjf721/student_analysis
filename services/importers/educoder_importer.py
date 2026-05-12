@@ -147,7 +147,7 @@ class EducoderImporter(BaseImporter):
         for data in self.parsed_data:
             try:
                 # 查找或创建学生
-                student = Student.get_by_student_no(data['student_no'])
+                student = Student.find_by_student_no_flex(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
@@ -156,6 +156,8 @@ class EducoderImporter(BaseImporter):
                     )
                     student.save()
                 else:
+                    if data['name'] and student.name != data['name']:
+                        student.name = data['name']
                     # 关联班级（如果学生还没有班级）
                     if class_id and not student.class_id:
                         student.class_id = class_id
@@ -341,7 +343,7 @@ class EducoderActivityImporter(EducoderImporter):
         
         for data in self.parsed_data:
             try:
-                student = Student.get_by_student_no(data['student_no'])
+                student = Student.find_by_student_no_flex(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
@@ -350,6 +352,8 @@ class EducoderActivityImporter(EducoderImporter):
                     )
                     student.save()
                 else:
+                    if data['name'] and student.name != data['name']:
+                        student.name = data['name']
                     # 关联班级（如果学生还没有班级）
                     if class_id and not student.class_id:
                         student.class_id = class_id
