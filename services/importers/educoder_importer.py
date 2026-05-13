@@ -495,3 +495,49 @@ class EducoderAssignmentImporter(EducoderImporter):
         
         self.errors = errors
         return len(self.parsed_data) > 0, errors
+
+    def _save_to_db(self) -> int:
+        success_count = 0
+
+        class_id = self._get_or_create_class()
+
+        for data in self.parsed_data:
+            try:
+                student = Student.find_by_student_no_flex(data['student_no'])
+                if not student:
+                    student = Student(
+                        student_no=data['student_no'],
+                        name=data['name'] or f'学生{data["student_no"]}',
+                        class_id=class_id
+                    )
+                    student.save()
+                else:
+                    if data['name'] and student.name != data['name']:
+                        student.name = data['name']
+                    if class_id and not student.class_id:
+                        student.class_id = class_id
+                        db.session.commit()
+
+                practice = StudentPractice.get_by_student_id(student.id)
+                if not practice:
+                    practice = StudentPractice(student_id=student.id)
+
+                practice.total_score = data['total_score']
+                practice.avg_experiment_score = data['avg_experiment_score']
+                practice.assignment_count = data['assignment_count']
+                practice.high_retry_count = data['high_retry_count']
+                practice.last_submit_time = data['last_submit_time']
+
+                practice.practice_score = practice.calculate_practice_score()
+                practice.practice_level = StudentKnowledgeMastery.calculate_mastery_level(
+                    practice.practice_score
+                )
+
+                db.session.add(practice)
+                success_count += 1
+
+            except Exception as e:
+                self.errors.append(f'保存学生{data.get("student_no", "未知")}失败: {str(e)}')
+
+        db.session.commit()
+        return success_count

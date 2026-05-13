@@ -263,8 +263,9 @@ def run_all_analysis() -> dict:
         if isinstance(r, dict) and r.get('success', True)
     )
     results['summary'] = {
+        'success': True,
         'total_analyzed': analyzed_count,
-        'analyzers_run': list(results.keys())
+        'message': f'共触发 {len(results)} 项分析，汇总分析 {analyzed_count} 条数据'
     }
     
     return results
