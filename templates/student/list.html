@@ -91,7 +91,10 @@ $(function() {
                         '<td>' + (typeof behaviorScore === 'number' ? behaviorScore.toFixed(1) : behaviorScore) + '</td>' +
                         '<td>' + (typeof practiceScore === 'number' ? practiceScore.toFixed(1) : practiceScore) + '</td>' +
                         '<td><span class="badge ' + warningClass + '">' + warningText + '</span></td>' +
-                        '<td><a href="/student/' + student.id + '" class="btn btn-sm btn-primary">查看画像</a></td>' +
+                        '<td>' +
+                            '<a href="/student/' + student.id + '" class="btn btn-sm btn-primary mr-1">画像</a>' +
+                            '<a href="/student/' + student.id + '/overview" class="btn btn-sm btn-info">全览</a>' +
+                        '</td>' +
                         '</tr>';
                 });
             }

@@ -38,6 +38,12 @@ LOG_FOLDER = BASE_DIR / 'logs'
 LOG_LEVEL = 'INFO'
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
+# 外部Excel数据文件配置（用于直接读取未入库的明细数据）
+EDUCODER_ASSIGNMENT_FILE = os.environ.get(
+    'EDUCODER_ASSIGNMENT_FILE',
+    '程序设计与数据结构(二)_(数据结构_C++描述）2026春_头歌_作业成绩表.xlsx'
+)
+
 # 风险预警配置
 WARNING_RULES = {
     'attendance_rate': {

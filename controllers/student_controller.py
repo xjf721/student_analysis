@@ -186,3 +186,28 @@ def get_class_comparison(student_id):
     comparison_data = analyzer.compare_with_class_avg(student_id)
     
     return jsonify(comparison_data)
+
+
+@student_bp.route('/student/<int:student_id>/overview')
+def student_overview(student_id):
+    """学生数据全览页面"""
+    return render_template('student/overview.html', student_id=student_id)
+
+
+@student_bp.route('/api/student/<int:student_id>/overview')
+def get_student_overview(student_id):
+    """
+    获取学生全览聚合数据
+    
+    Args:
+        student_id: 学生ID
+        
+    Returns:
+        全览数据JSON
+    """
+    overview_data = StudentRepository.get_full_overview(student_id)
+    
+    if not overview_data:
+        return jsonify({'error': '学生不存在'}), 404
+    
+    return jsonify(overview_data)
