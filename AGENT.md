@@ -291,7 +291,7 @@ def read_excel_smart(file_path, header=_UNSET):
 | 文件上传       | Flask Upload          |
 | 缓存（第二阶段）   | Redis                 |
 | 后台任务（第二阶段） | Celery/APScheduler    |
-| 运行环境         | WSL                 |
+| 运行环境         | WSL（Ubuntu）                 |
 
 ---
 
