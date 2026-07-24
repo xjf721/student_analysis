@@ -22,6 +22,33 @@ def calculate_file_hash(file_path: Path) -> str:
     return digest.hexdigest()
 
 
+class AuditPersistenceError(RuntimeError):
+    """Raised when a failed import cannot itself be written to the audit log."""
+
+
+def record_failed_import(class_id: int, filename: str, file_hash: str,
+                         uploaded_by: str, import_type: str,
+                         error_message: str) -> ImportRecord:
+    """Rollback current work and persist exactly one failed import record."""
+    db.session.rollback()
+    record = ImportRecord(
+        class_id=class_id,
+        filename=filename,
+        file_hash=file_hash,
+        uploaded_by=uploaded_by,
+        import_type=import_type,
+        import_status='失败',
+        error_message=error_message,
+    )
+    try:
+        db.session.add(record)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        raise AuditPersistenceError(f'失败审计记录保存失败: {exc}') from exc
+    return record
+
+
 class BaseImporter(ABC):
     """
     数据导入器抽象基类
@@ -237,8 +264,14 @@ class BaseImporter(ABC):
             return True, f'成功导入 {success_count} 条记录'
             
         except Exception as e:
-            self._record_failed_import(str(e))
-            return False, f'保存失败: {str(e)}'
+            error_message = f'保存阶段异常: {e}'
+            try:
+                self._record_failed_import(error_message)
+            except AuditPersistenceError as audit_exc:
+                raise AuditPersistenceError(
+                    f'{error_message}；{audit_exc}'
+                ) from audit_exc
+            return False, f'保存失败: {error_message}'
     
     @abstractmethod
     def _save_to_db(self) -> int:
@@ -266,32 +299,53 @@ class BaseImporter(ABC):
         }
         
         # 1. 校验
-        valid, errors = self.validate()
+        try:
+            valid, errors = self.validate()
+        except Exception as exc:
+            result['message'] = '数据校验异常'
+            result['errors'] = [f'validate 阶段异常: {exc}']
+            return self._attach_failed_audit(result)
         if not valid:
             result['errors'] = errors if errors else ['数据校验失败（无详细错误）']
             result['message'] = '数据校验失败'
-            self._record_failed_import('; '.join(result['errors']))
-            return result
+            return self._attach_failed_audit(result)
         
         # 2. 清洗
-        cleaned, warnings = self.clean()
+        try:
+            cleaned, warnings = self.clean()
+        except Exception as exc:
+            result['message'] = '数据清洗异常'
+            result['errors'] = [f'clean 阶段异常: {exc}']
+            return self._attach_failed_audit(result)
         result['warnings'] = warnings
         if not cleaned:
             result['errors'] = warnings if warnings else ['数据清洗失败']
             result['message'] = '数据清洗失败'
-            self._record_failed_import('; '.join(result['errors']))
-            return result
+            return self._attach_failed_audit(result)
         
         # 3. 解析
-        parsed, parse_errors = self.parse()
+        try:
+            parsed, parse_errors = self.parse()
+        except Exception as exc:
+            result['message'] = '数据解析异常'
+            result['errors'] = [f'parse 阶段异常: {exc}']
+            return self._attach_failed_audit(result)
         if not parsed:
             result['errors'] = parse_errors if parse_errors else [f'数据解析失败: df有{len(self.df)}行但无有效数据']
             result['message'] = '数据解析失败'
-            self._record_failed_import('; '.join(result['errors']))
-            return result
+            return self._attach_failed_audit(result)
         
         # 4. 保存
-        saved, message = self.save()
+        try:
+            saved, message = self.save()
+        except AuditPersistenceError as exc:
+            result['message'] = '保存失败且审计记录未写入'
+            result['errors'] = [str(exc)]
+            return result
+        except Exception as exc:
+            result['message'] = '数据保存异常'
+            result['errors'] = [f'save 阶段异常: {exc}']
+            return self._attach_failed_audit(result)
         result['success'] = saved
         result['message'] = message
         if not saved:
@@ -351,21 +405,23 @@ class BaseImporter(ABC):
 
     def _record_failed_import(self, error_message: str) -> None:
         """回滚当前文件的数据变更，再单独持久化失败审计记录。"""
-        db.session.rollback()
-        self.import_record = ImportRecord(
+        self.import_record = record_failed_import(
             class_id=self.class_id,
             filename=self.filename,
             file_hash=self.file_hash,
             uploaded_by=self.uploaded_by,
             import_type=self.import_type,
-            import_status='失败',
             error_message=error_message,
         )
+
+    def _attach_failed_audit(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Attach a failed audit row, exposing persistence errors to callers."""
         try:
-            db.session.add(self.import_record)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+            self._record_failed_import('; '.join(result['errors']))
+        except AuditPersistenceError as exc:
+            result['errors'].append(str(exc))
+            result['message'] = f'{result["message"]}；{exc}'
+        return result
     
     def _safe_get_value(self, row, column: str, default: Any = 0) -> Any:
         """

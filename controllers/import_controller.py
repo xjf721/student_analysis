@@ -26,7 +26,11 @@ from services.importers import (
     EducoderImporter,
     EducoderActivityImporter,
 )
-from services.importers.base_importer import calculate_file_hash
+from services.importers.base_importer import (
+    AuditPersistenceError,
+    calculate_file_hash,
+    record_failed_import,
+)
 from services.importers.parser_utils import detect_file_type, extract_class_info_from_filename
 from services.analysis import BehaviorAnalyzer, KnowledgeAnalyzer, PracticeAnalyzer, WarningEngine
 from services.class_context import get_active_class_id, require_active_class
@@ -64,6 +68,15 @@ def _get_target_class(payload) -> tuple[ClassInfo, object]:
             'message': '请选择有效的目标班级',
         }), 400)
 
+    active_class_id = get_active_class_id()
+    if class_id != active_class_id:
+        return None, (jsonify({
+            'error': 'class_context_mismatch',
+            'message': '目标班级与当前活动班级不一致，请先切换班级',
+            'active_class_id': active_class_id,
+            'requested_class_id': class_id,
+        }), 409)
+
     target = ClassInfo.query.filter_by(id=class_id, status='active').first()
     if target is None:
         return None, (jsonify({
@@ -94,6 +107,8 @@ def import_page():
     classes = ClassInfo.query.filter_by(status='active').order_by(ClassInfo.class_name).all()
     requested_id = request.args.get('class_id', type=int)
     selected_id = requested_id if any(item.id == requested_id for item in classes) else class_id
+    if selected_id != class_id:
+        session['active_class_id'] = selected_id
     return render_template(
         'import/index.html',
         classes=classes,
@@ -383,10 +398,28 @@ def import_data(file_path: str, class_id: int, uploaded_by: str,
             import_type = '头歌'
     
     else:
+        error_message = f'无法识别文件类型: {import_type}'
+        audit_error = None
+        try:
+            record_failed_import(
+                class_id=class_id,
+                filename=original_filename or Path(file_path).name,
+                file_hash=file_hash or calculate_file_hash(Path(file_path)),
+                uploaded_by=uploaded_by,
+                import_type=import_type or '未知',
+                error_message=error_message,
+            )
+        except AuditPersistenceError as exc:
+            audit_error = str(exc)
         return {
             'success': False,
-            'message': f'无法识别文件类型: {import_type}',
-            'errors': ['请手动指定导入类型或检查文件格式']
+            'message': error_message if audit_error is None else f'{error_message}；{audit_error}',
+            'errors': [
+                '请手动指定导入类型或检查文件格式',
+                *([audit_error] if audit_error else []),
+            ],
+            'class_id': class_id,
+            'import_type': import_type or '未知',
         }
     
     # 执行导入

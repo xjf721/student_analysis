@@ -32,6 +32,8 @@ def detail(class_id):
     item = ClassRepository.get_by_id(class_id)
     if item is None:
         return render_template('errors/404.html'), 404
+    if item.status == 'active':
+        session['active_class_id'] = item.id
     return render_template(
         'class/detail.html',
         class_item=item,

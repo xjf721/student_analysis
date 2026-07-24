@@ -145,15 +145,19 @@ $(function() {
     // 文件选择显示文件名
     $('#file-input').change(function() {
         var fileName = $(this).val().split('\\').pop();
-        $(this).next('.custom-file-label').html(fileName || '选择文件...');
+        $(this).next('.custom-file-label').text(fileName || '选择文件...');
     });
 
     // 同步活动班级，使导入历史和手动分析始终跟随目标班级。
+    var classContextReady = true;
     $('#target-class-select').on('change', function() {
         var select = this;
+        classContextReady = false;
         $(select).prop('disabled', true);
+        $('#upload-form button, #folder-import-btn, #analyze-btn').prop('disabled', true);
         $.post('/api/classes/' + this.value + '/select')
             .done(function() {
+                classContextReady = true;
                 loadImportLogs();
             })
             .fail(function() {
@@ -162,6 +166,9 @@ $(function() {
             })
             .always(function() {
                 $(select).prop('disabled', false);
+                if (classContextReady) {
+                    $('#upload-form button, #folder-import-btn, #analyze-btn').prop('disabled', false);
+                }
             });
     });
     
@@ -215,11 +222,18 @@ $(function() {
     // 上传文件
     $('#upload-form').submit(function(e) {
         e.preventDefault();
+        if (!classContextReady) {
+            $('#upload-result').show().html('<div class="alert alert-warning">请等待班级切换完成</div>');
+            return;
+        }
         submitUpload(new FormData(this));
     });
 
     // 一键导入文件夹内所有Excel
     $('#folder-import-btn').click(function() {
+        if (!classContextReady) {
+            return;
+        }
         var folder = $('#folder-input').val().trim() || 'new-datas';
         var $btn = $(this);
 

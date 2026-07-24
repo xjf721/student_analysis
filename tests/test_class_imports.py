@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from models import (
     ClassInfo,
@@ -69,6 +70,7 @@ def test_confirmed_upload_preserves_filename_and_uses_explicit_target(
         'controllers.import_controller.run_all_analysis',
         lambda class_id: analyzed.append(class_id) or {'summary': {'success': True}},
     )
+    assert client.post(f'/api/classes/{second_id}/select').status_code == 200
 
     with file_path.open('rb') as stream:
         response = client.post('/api/import/upload', data={
@@ -83,6 +85,30 @@ def test_confirmed_upload_preserves_filename_and_uses_explicit_target(
     assert observed['original_filename'] == file_path.name
     assert len(observed['file_hash']) == 64
     assert analyzed == [second_id]
+
+
+def test_upload_rejects_tampered_class_id_before_import(
+    client, two_classes, tmp_path, monkeypatch
+):
+    first_id, second_id = two_classes
+    login_and_select(client, first_id)
+    file_path = tmp_path / '2026春-青年2班-雨课堂-成绩单.xlsx'
+    file_path.write_bytes(b'fake excel')
+    imported = []
+    monkeypatch.setattr(
+        'controllers.import_controller.import_data',
+        lambda *args, **kwargs: imported.append((args, kwargs)),
+    )
+
+    with file_path.open('rb') as stream:
+        response = client.post('/api/import/upload', data={
+            'class_id': str(second_id),
+            'file': (stream, file_path.name),
+        })
+
+    assert response.status_code == 409
+    assert response.get_json()['error'] == 'class_context_mismatch'
+    assert imported == []
 
 
 def test_upload_rejects_archived_target_class(
@@ -107,8 +133,8 @@ def test_upload_rejects_archived_target_class(
             'file': (stream, file_path.name),
         })
 
-    assert response.status_code == 400
-    assert response.get_json()['error'] == 'invalid_target_class'
+    assert response.status_code == 409
+    assert response.get_json()['error'] == 'class_context_mismatch'
     assert imported == []
 
 
@@ -194,6 +220,28 @@ def test_folder_import_surfaces_class_mismatch(
     assert imported == []
 
 
+def test_folder_import_rejects_tampered_class_context(
+    client, two_classes, tmp_path, monkeypatch
+):
+    first_id, second_id = two_classes
+    login_and_select(client, first_id)
+    (tmp_path / '2026春-青年2班-雨课堂-成绩单.xlsx').write_bytes(b'fake excel')
+    imported = []
+    monkeypatch.setattr(
+        'controllers.import_controller.import_data',
+        lambda *args, **kwargs: imported.append((args, kwargs)),
+    )
+
+    response = client.post('/api/import/folder', json={
+        'class_id': second_id,
+        'folder': str(tmp_path),
+    })
+
+    assert response.status_code == 409
+    assert response.get_json()['error'] == 'class_context_mismatch'
+    assert imported == []
+
+
 def test_same_filename_is_independent_between_classes(app, two_classes):
     first_id, second_id = two_classes
     with app.app_context():
@@ -259,6 +307,41 @@ class ParseFailImporter(BaseImporter):
         raise AssertionError('parse failure must not save')
 
 
+class PhaseExceptionImporter(BaseImporter):
+    def __init__(self, *args, fail_phase, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fail_phase = fail_phase
+
+    @property
+    def import_type(self):
+        return 'test'
+
+    def get_expected_columns(self):
+        return []
+
+    def validate(self):
+        if self.fail_phase == 'validate':
+            raise RuntimeError('boom-validate')
+        self.df = pd.DataFrame([{'value': 1}])
+        return True, []
+
+    def clean(self):
+        if self.fail_phase == 'clean':
+            raise RuntimeError('boom-clean')
+        return True, []
+
+    def parse(self):
+        if self.fail_phase == 'parse':
+            raise RuntimeError('boom-parse')
+        self.parsed_data = [{'value': 1}]
+        return True, []
+
+    def _save_to_db(self):
+        if self.fail_phase == 'save':
+            raise RuntimeError('boom-save')
+        return 1
+
+
 def test_failed_save_rolls_back_data_and_records_failure(app, two_classes, tmp_path):
     first_id, _ = two_classes
     file_path = tmp_path / 'atomic.xlsx'
@@ -311,6 +394,71 @@ def test_parse_failure_records_failed_import(app, two_classes, tmp_path):
         record = ImportRecord.query.filter_by(class_id=first_id).one()
         assert record.import_status == '失败'
         assert '无法解析测试文件' in record.error_message
+
+
+@pytest.mark.parametrize('phase', ['validate', 'clean', 'parse', 'save'])
+def test_stage_exception_rolls_back_and_records_readable_failure(
+    app, two_classes, tmp_path, phase
+):
+    first_id, _ = two_classes
+    file_path = tmp_path / f'{phase}.xlsx'
+    file_path.write_bytes(phase.encode())
+
+    with app.app_context():
+        importer = PhaseExceptionImporter(
+            str(file_path), first_id, 'admin', fail_phase=phase
+        )
+
+        result = importer.execute()
+
+        assert result['success'] is False
+        assert phase in ' '.join(result['errors'])
+        records = ImportRecord.query.filter_by(class_id=first_id).all()
+        assert len(records) == 1
+        assert records[0].import_status == '失败'
+        assert phase in records[0].error_message
+
+
+def test_failed_audit_persistence_is_not_silently_swallowed(
+    app, two_classes, tmp_path, monkeypatch
+):
+    first_id, _ = two_classes
+    file_path = tmp_path / 'audit.xlsx'
+    file_path.write_bytes(b'audit')
+
+    with app.app_context():
+        importer = ParseFailImporter(str(file_path), first_id, 'admin')
+        monkeypatch.setattr(
+            db.session,
+            'commit',
+            lambda: (_ for _ in ()).throw(RuntimeError('audit database unavailable')),
+        )
+
+        with pytest.raises(RuntimeError, match='失败审计记录保存失败'):
+            importer._record_failed_import('original failure')
+
+
+def test_unknown_excel_type_records_failed_import(app, two_classes, tmp_path, monkeypatch):
+    from controllers.import_controller import import_data
+
+    first_id, _ = two_classes
+    file_path = tmp_path / 'unknown.xlsx'
+    file_path.write_bytes(b'unknown')
+    monkeypatch.setattr(
+        'services.importers.parser_utils.read_excel_smart',
+        lambda *args, **kwargs: pd.DataFrame([{'陌生列': 1}]),
+    )
+
+    with app.app_context():
+        result = import_data(
+            str(file_path), first_id, 'admin', file_hash=calculate_file_hash(file_path)
+        )
+
+        assert result['success'] is False
+        record = ImportRecord.query.filter_by(class_id=first_id).one()
+        assert record.import_status == '失败'
+        assert record.filename == file_path.name
+        assert '无法识别文件类型' in record.error_message
 
 
 def test_cross_class_student_number_collision_does_not_move_student(
@@ -387,6 +535,7 @@ def test_general_import_page_has_target_class_picker_and_no_clear_button(
     assert 'escapeHtml(errorMsg)' in html
     assert 'escapeHtml(item.filename)' in html
     assert 'escapeHtml(data.results[key].message)' in html
+    assert ".text(fileName || '选择文件...')" in html
     assert 'clear-data-btn' not in html
     assert '/api/import/clear-all' not in html
 
@@ -405,3 +554,17 @@ def test_class_detail_has_locked_upload_for_its_class(client, two_classes):
     assert f'name="class_id" value="{second_id}"' in html
     assert 'confirm_class_mismatch' in html
     assert '/api/import/upload' in html
+    with client.session_transaction() as session:
+        assert session['active_class_id'] == second_id
+
+
+def test_import_query_class_synchronizes_active_session(client, two_classes):
+    first_id, second_id = two_classes
+    login_and_select(client, first_id)
+
+    response = client.get(f'/import?class_id={second_id}')
+
+    assert response.status_code == 200
+    assert f'value="{second_id}" selected' in response.get_data(as_text=True)
+    with client.session_transaction() as session:
+        assert session['active_class_id'] == second_id
