@@ -311,10 +311,6 @@ $(function() {
         $(selector).html(html);
     }
 
-    function renderEmpty(selector, colspan, text) {
-        $(selector).html('<tr><td class="empty-row" colspan="' + colspan + '">' + escapeHtml(text) + '</td></tr>');
-    }
-
     function loadAllData() {
         $.get('/api/student/' + studentId + '/overview', function(data) {
             renderBasicInfo(data.basic);
@@ -343,7 +339,7 @@ $(function() {
 
     function renderBehavior(behavior) {
         if (!behavior) {
-            renderEmpty('#behavior-table', 2, '暂无雨课堂学习行为数据');
+            $('#behavior-table').html(currentClassEmptyRow(2));
             return;
         }
 
@@ -362,7 +358,7 @@ $(function() {
 
     function renderPractice(practice) {
         if (!practice) {
-            renderEmpty('#practice-table', 2, '暂无头歌实践数据');
+            $('#practice-table').html(currentClassEmptyRow(2));
             return;
         }
 
@@ -381,7 +377,7 @@ $(function() {
 
     function renderKnowledgeSummary(knowledge) {
         if (!knowledge) {
-            renderEmpty('#knowledge-summary-table', 2, '暂无知识点汇总数据');
+            $('#knowledge-summary-table').html(currentClassEmptyRow(2));
             return;
         }
 
@@ -420,7 +416,7 @@ $(function() {
             .filter(function(point) { return point.knowledge_name !== '__汇总__'; });
 
         if (points.length === 0) {
-            renderEmpty('#knowledge-table', 9, '暂无知识点掌握明细');
+            $('#knowledge-table').html(currentClassEmptyRow(9));
             return;
         }
 
@@ -443,7 +439,7 @@ $(function() {
 
     function renderAssignments(assignments) {
         if (assignments.length === 0) {
-            renderEmpty('#assignment-table', 11, '暂无头歌作业明细');
+            $('#assignment-table').html(currentClassEmptyRow(11));
             return;
         }
 
@@ -484,7 +480,7 @@ $(function() {
 
     function renderChallengeTable(challenges) {
         if (!challenges || challenges.length === 0) {
-            return '<div class="text-muted">暂无关卡明细</div>';
+            return currentClassEmptyState();
         }
 
         var html = '<table class="table table-sm table-bordered">' +
@@ -512,7 +508,7 @@ $(function() {
 
     function renderWarnings(warnings) {
         if (warnings.length === 0) {
-            renderEmpty('#warning-table', 6, '暂无预警记录');
+            $('#warning-table').html(currentClassEmptyRow(6));
             return;
         }
 

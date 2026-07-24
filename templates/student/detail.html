@@ -322,9 +322,14 @@ $(function() {
     }
     
     function loadRadarChart() {
-        var chart = echarts.init(document.getElementById('radar-chart'));
+        var chart;
         
         $.get('/api/student/' + studentId + '/radar', function(data) {
+            if (!data.indicator || data.indicator.length === 0 || !data.values || data.values.length === 0) {
+                renderCurrentClassEmptyChart('#radar-chart');
+                return;
+            }
+            chart = echarts.init(document.getElementById('radar-chart'));
             chart.setOption({
                 tooltip: {},
                 radar: {
@@ -340,7 +345,7 @@ $(function() {
             });
         });
         
-        $(window).resize(function() { chart.resize(); });
+        $(window).resize(function() { if (chart) { chart.resize(); } });
     }
     
     function loadTheoryPractice() {

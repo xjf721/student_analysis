@@ -67,8 +67,17 @@ def get_radar_data():
         雷达图数据
     """
     class_id = get_active_class_id()
+    student_count = StudentRepository.get_count(class_id)
+    if not student_count:
+        return jsonify({
+            'student_count': 0,
+            'indicator': [],
+            'values': [],
+        })
+
     analyzer = BehaviorAnalyzer(class_id)
     radar_data = analyzer.get_radar_data()
+    radar_data['student_count'] = student_count
     
     return jsonify(radar_data)
 
