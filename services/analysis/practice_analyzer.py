@@ -21,13 +21,15 @@ class PracticeAnalyzer:
     分析学生的实验和实践能力
     """
     
-    def __init__(self, class_id: Optional[int] = None):
+    def __init__(self, class_id: int):
         """
         初始化实践能力分析器
         
         Args:
             class_id: 班级ID
         """
+        if not class_id:
+            raise ValueError('class_id is required')
         self.class_id = class_id
     
     def analyze_all(self) -> Dict:
@@ -56,12 +58,9 @@ class PracticeAnalyzer:
         """
         获取实践数据
         """
-        query = StudentPractice.query
-        
-        if self.class_id:
-            query = query.join(Student).filter(Student.class_id == self.class_id)
-        
-        return query.all()
+        return StudentPractice.query.join(Student).filter(
+            Student.class_id == self.class_id
+        ).all()
     
     def _calculate_level(self, score: float) -> int:
         """
@@ -82,7 +81,7 @@ class PracticeAnalyzer:
         else:
             return 0  # 正常
     
-    def get_class_statistics(self, class_id: Optional[int] = None) -> Dict:
+    def get_class_statistics(self) -> Dict:
         """
         获取班级实践统计数据
         
@@ -92,9 +91,9 @@ class PracticeAnalyzer:
         Returns:
             统计数据
         """
-        query = StudentPractice.query
-        if class_id:
-            query = query.join(Student).filter(Student.class_id == class_id)
+        query = StudentPractice.query.join(Student).filter(
+            Student.class_id == self.class_id
+        )
 
         practices = query.all()
 
@@ -140,6 +139,7 @@ class PracticeAnalyzer:
         """
         results = db.session.query(Student, StudentPractice)\
             .join(StudentPractice, Student.id == StudentPractice.student_id)\
+            .filter(Student.class_id == self.class_id)\
             .filter(StudentPractice.avg_experiment_score < threshold)\
             .order_by(StudentPractice.avg_experiment_score)\
             .limit(limit)\
@@ -167,6 +167,7 @@ class PracticeAnalyzer:
         """
         results = db.session.query(Student, StudentPractice)\
             .join(StudentPractice, Student.id == StudentPractice.student_id)\
+            .filter(Student.class_id == self.class_id)\
             .filter(StudentPractice.high_retry_count >= threshold)\
             .order_by(desc(StudentPractice.high_retry_count))\
             .limit(limit)\
@@ -195,6 +196,7 @@ class PracticeAnalyzer:
         
         results = db.session.query(Student, StudentPractice)\
             .join(StudentPractice, Student.id == StudentPractice.student_id)\
+            .filter(Student.class_id == self.class_id)\
             .filter(
                 (StudentPractice.last_submit_time < threshold_date) |
                 (StudentPractice.last_submit_time.is_(None))
@@ -210,7 +212,7 @@ class PracticeAnalyzer:
             'activity_score': practice.activity_score
         } for student, practice in results]
     
-    def get_theory_practice_comparison(self, class_id: Optional[int] = None) -> List[Dict]:
+    def get_theory_practice_comparison(self) -> List[Dict]:
         """
         获取理论与实践对比数据
         
@@ -228,10 +230,7 @@ class PracticeAnalyzer:
             StudentBehavior, Student.id == StudentBehavior.student_id
         ).join(
             StudentPractice, Student.id == StudentPractice.student_id
-        )
-        
-        if class_id:
-            query = query.filter(Student.class_id == class_id)
+        ).filter(Student.class_id == self.class_id)
         
         results = query.all()
         

@@ -93,9 +93,9 @@ class StudentRepository:
     """
     
     @staticmethod
-    def get_by_id(student_id: int) -> Optional[Student]:
+    def get_by_id(student_id: int, class_id: int) -> Optional[Student]:
         """根据ID获取学生"""
-        return Student.query.get(student_id)
+        return Student.query.filter_by(id=student_id, class_id=class_id).first()
     
     @staticmethod
     def get_by_student_no(student_no: str) -> Optional[Student]:
@@ -103,15 +103,12 @@ class StudentRepository:
         return Student.get_by_student_no(student_no)
     
     @staticmethod
-    def get_all(class_id: Optional[int] = None) -> List[Student]:
+    def get_all(class_id: int) -> List[Student]:
         """获取所有学生"""
-        query = Student.query
-        if class_id:
-            query = query.filter_by(class_id=class_id)
-        return query.all()
+        return Student.query.filter_by(class_id=class_id).all()
     
     @staticmethod
-    def get_with_details(student_id: int) -> Optional[Dict]:
+    def get_with_details(student_id: int, class_id: int) -> Optional[Dict]:
         """
         获取学生详细信息（包含关联数据）
         
@@ -121,7 +118,7 @@ class StudentRepository:
         Returns:
             学生详情字典
         """
-        student = Student.query.get(student_id)
+        student = Student.query.filter_by(id=student_id, class_id=class_id).first()
         
         if not student:
             return None
@@ -141,15 +138,15 @@ class StudentRepository:
         if latest_warning:
             result['warning'] = latest_warning.to_dict()
 
-        result['theory_practice'] = StudentRepository.get_theory_practice(student_id)
-        result['profile_metrics'] = StudentRepository.get_profile_metrics(student_id)
+        result['theory_practice'] = StudentRepository.get_theory_practice(student_id, class_id)
+        result['profile_metrics'] = StudentRepository.get_profile_metrics(student_id, class_id)
         
         return result
 
     @staticmethod
-    def get_theory_practice(student_id: int) -> Optional[Dict]:
+    def get_theory_practice(student_id: int, class_id: int) -> Optional[Dict]:
         """获取归一化后的理论/实践对比。"""
-        student = Student.query.get(student_id)
+        student = Student.query.filter_by(id=student_id, class_id=class_id).first()
         if not student:
             return None
 
@@ -186,9 +183,9 @@ class StudentRepository:
         }
 
     @staticmethod
-    def get_profile_metrics(student_id: int) -> Optional[Dict]:
+    def get_profile_metrics(student_id: int, class_id: int) -> Optional[Dict]:
         """获取学生画像补充指标。"""
-        student = Student.query.get(student_id)
+        student = Student.query.filter_by(id=student_id, class_id=class_id).first()
         if not student:
             return None
 
@@ -219,7 +216,7 @@ class StudentRepository:
         }
     
     @staticmethod
-    def get_full_overview(student_id: int) -> Optional[Dict]:
+    def get_full_overview(student_id: int, class_id: int) -> Optional[Dict]:
         """
         获取学生全览数据，聚合所有平台数据
         
@@ -229,7 +226,7 @@ class StudentRepository:
         Returns:
             全览数据字典
         """
-        student = Student.query.get(student_id)
+        student = Student.query.filter_by(id=student_id, class_id=class_id).first()
         if not student:
             return None
         
@@ -330,21 +327,20 @@ class StudentRepository:
         result['assignments'] = _read_educoder_assignment_details(student.id)
         result['assignment_summary'] = _summarize_assignments(result['assignments'])
         
-        result['theory_practice'] = StudentRepository.get_theory_practice(student_id)
-        result['profile_metrics'] = StudentRepository.get_profile_metrics(student_id)
+        result['theory_practice'] = StudentRepository.get_theory_practice(student_id, class_id)
+        result['profile_metrics'] = StudentRepository.get_profile_metrics(student_id, class_id)
         
         return result
     
     @staticmethod
-    def get_count(class_id: Optional[int] = None) -> int:
+    def get_count(class_id: int) -> int:
         """获取学生数量"""
-        query = db.session.query(func.count(Student.id))
-        if class_id:
-            query = query.filter_by(class_id=class_id)
-        return query.scalar() or 0
+        return db.session.query(func.count(Student.id)).filter(
+            Student.class_id == class_id
+        ).scalar() or 0
     
     @staticmethod
-    def search(keyword: str, limit: int = 20) -> List[Student]:
+    def search(keyword: str, class_id: int, limit: int = 20) -> List[Student]:
         """
         搜索学生（按学号或姓名）
         
@@ -356,6 +352,7 @@ class StudentRepository:
             学生列表
         """
         return Student.query.filter(
+            Student.class_id == class_id,
             db.or_(
                 Student.student_no.like(f'%{keyword}%'),
                 Student.name.like(f'%{keyword}%')

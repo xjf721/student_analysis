@@ -21,13 +21,15 @@ class WarningEngine:
     基于配置化规则分析学生学习风险
     """
     
-    def __init__(self, class_id: Optional[int] = None):
+    def __init__(self, class_id: int):
         """
         初始化预警引擎
         
         Args:
             class_id: 班级ID
         """
+        if not class_id:
+            raise ValueError('class_id is required')
         self.class_id = class_id
         self.rules = WARNING_RULES
     
@@ -57,12 +59,7 @@ class WarningEngine:
         """
         获取学生列表
         """
-        query = Student.query
-        
-        if self.class_id:
-            query = query.filter_by(class_id=self.class_id)
-        
-        return query.all()
+        return Student.query.filter_by(class_id=self.class_id).all()
     
     def _analyze_student(self, student: Student) -> None:
         """
@@ -194,6 +191,7 @@ class WarningEngine:
         """
         results = db.session.query(Student, WarningRecord)\
             .join(WarningRecord, Student.id == WarningRecord.student_id)\
+            .filter(Student.class_id == self.class_id)\
             .filter(WarningRecord.warning_level >= min_level)\
             .order_by(desc(WarningRecord.warning_score))\
             .limit(limit)\
@@ -210,7 +208,7 @@ class WarningEngine:
             'warning_reason': warning.warning_reason
         } for student, warning in results]
     
-    def get_warning_statistics(self, class_id: Optional[int] = None) -> Dict:
+    def get_warning_statistics(self) -> Dict:
         """
         获取预警统计数据
         
@@ -225,8 +223,7 @@ class WarningEngine:
             func.count(WarningRecord.id).label('count')
         ).group_by(WarningRecord.warning_level)
         
-        if class_id:
-            query = query.join(Student).filter(Student.class_id == class_id)
+        query = query.join(Student).filter(Student.class_id == self.class_id)
         
         results = query.all()
         
@@ -257,6 +254,8 @@ class WarningEngine:
         results = db.session.query(
             WarningRecord.warning_type,
             func.count(WarningRecord.id).label('count')
+        ).join(Student).filter(
+            Student.class_id == self.class_id
         ).group_by(WarningRecord.warning_type).all()
         
         return {
@@ -271,8 +270,13 @@ class WarningEngine:
         Returns:
             刷新结果
         """
-        # 清除所有预警记录
-        WarningRecord.query.delete()
+        # 只清除当前班级学生的预警记录
+        student_ids = db.session.query(Student.id).filter(
+            Student.class_id == self.class_id
+        )
+        WarningRecord.query.filter(WarningRecord.student_id.in_(student_ids)).delete(
+            synchronize_session=False
+        )
         
         # 重新分析
         return self.analyze_all()

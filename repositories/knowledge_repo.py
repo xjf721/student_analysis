@@ -25,18 +25,19 @@ class KnowledgeRepository:
         return StudentKnowledgeMastery.get_student_knowledge(student_id, knowledge_name)
     
     @staticmethod
-    def get_all_knowledge_names() -> List[str]:
+    def get_all_knowledge_names(class_id: int) -> List[str]:
         """获取所有知识点名称（排除内部占位符）"""
         results = db.session.query(
             StudentKnowledgeMastery.knowledge_name
-        ).filter(
+        ).join(Student).filter(
+            Student.class_id == class_id,
             StudentKnowledgeMastery.knowledge_name != '__汇总__'
         ).distinct().all()
         
         return [r[0] for r in results]
     
     @staticmethod
-    def get_knowledge_statistics() -> List[Dict]:
+    def get_knowledge_statistics(class_id: int) -> List[Dict]:
         """
         获取各知识点统计数据
         
@@ -49,7 +50,8 @@ class KnowledgeRepository:
             func.count(StudentKnowledgeMastery.id).label('count'),
             func.min(StudentKnowledgeMastery.mastery_rate).label('min_rate'),
             func.max(StudentKnowledgeMastery.mastery_rate).label('max_rate')
-        ).filter(
+        ).join(Student).filter(
+            Student.class_id == class_id,
             StudentKnowledgeMastery.knowledge_name != '__汇总__'
         ).group_by(
             StudentKnowledgeMastery.knowledge_name
@@ -66,13 +68,13 @@ class KnowledgeRepository:
         } for r in results]
 
     @staticmethod
-    def get_point_summary_statistics(limit: Optional[int] = None) -> List[Dict]:
+    def get_point_summary_statistics(class_id: int, limit: Optional[int] = None) -> List[Dict]:
         """
         获取雨课堂按知识点汇总数据。
 
         该数据来自知识点维度导出，不与学生明细平均值混合。
         """
-        query = KnowledgePointSummary.query.order_by(
+        query = KnowledgePointSummary.query.filter_by(class_id=class_id).order_by(
             KnowledgePointSummary.mastery_rate.asc(),
             KnowledgePointSummary.content_completion_rate.desc()
         )
@@ -83,7 +85,7 @@ class KnowledgeRepository:
         return [item.to_dict() for item in query.all()]
     
     @staticmethod
-    def get_weak_knowledge_points(threshold: float = 40.0) -> List[str]:
+    def get_weak_knowledge_points(class_id: int, threshold: float = 40.0) -> List[str]:
         """
         获取整体薄弱的知识点
         
@@ -93,12 +95,12 @@ class KnowledgeRepository:
         Returns:
             薄弱知识点名称列表
         """
-        stats = KnowledgeRepository.get_knowledge_statistics()
+        stats = KnowledgeRepository.get_knowledge_statistics(class_id)
         
         return [s['knowledge_name'] for s in stats if s['avg_mastery_rate'] < threshold]
     
     @staticmethod
-    def get_students_by_knowledge(knowledge_name: str, 
+    def get_students_by_knowledge(class_id: int, knowledge_name: str,
                                    min_rate: Optional[float] = None,
                                    max_rate: Optional[float] = None,
                                    limit: int = 50) -> List[Dict]:
@@ -116,6 +118,7 @@ class KnowledgeRepository:
         """
         query = db.session.query(Student, StudentKnowledgeMastery)\
             .join(StudentKnowledgeMastery)\
+            .filter(Student.class_id == class_id)\
             .filter(StudentKnowledgeMastery.knowledge_name == knowledge_name)
         
         if min_rate is not None:
@@ -140,7 +143,7 @@ class KnowledgeRepository:
         } for s, m in results]
     
     @staticmethod
-    def get_heatmap_data(class_id: Optional[int] = None,
+    def get_heatmap_data(class_id: int,
                          knowledge_limit: int = 20,
                          student_limit: int = 50) -> Dict:
         """
@@ -155,18 +158,14 @@ class KnowledgeRepository:
             热力图数据
         """
         # 获取知识点列表
-        knowledge_stats = KnowledgeRepository.get_knowledge_statistics()[:knowledge_limit]
+        knowledge_stats = KnowledgeRepository.get_knowledge_statistics(class_id)[:knowledge_limit]
         knowledge_names = [k['knowledge_name'] for k in knowledge_stats]
         
         if not knowledge_names:
             return {'students': [], 'knowledge': [], 'data': []}
         
         # 获取学生列表
-        query = Student.query
-        if class_id:
-            query = query.filter_by(class_id=class_id)
-        
-        students = query.limit(student_limit).all()
+        students = Student.query.filter_by(class_id=class_id).limit(student_limit).all()
         
         # 构建数据矩阵
         data = []

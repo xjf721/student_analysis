@@ -20,15 +20,14 @@ class BehaviorRepository:
         return StudentBehavior.get_by_student_id(student_id)
     
     @staticmethod
-    def get_all(class_id: Optional[int] = None) -> List[StudentBehavior]:
+    def get_all(class_id: int) -> List[StudentBehavior]:
         """获取所有行为数据"""
-        query = StudentBehavior.query
-        if class_id:
-            query = query.join(Student).filter(Student.class_id == class_id)
-        return query.all()
+        return StudentBehavior.query.join(Student).filter(
+            Student.class_id == class_id
+        ).all()
     
     @staticmethod
-    def get_statistics(class_id: Optional[int] = None) -> Dict:
+    def get_statistics(class_id: int) -> Dict:
         """
         获取行为统计数据
         
@@ -47,8 +46,7 @@ class BehaviorRepository:
             func.count(StudentBehavior.id).label('count')
         )
         
-        if class_id:
-            query = query.join(Student).filter(Student.class_id == class_id)
+        query = query.join(Student).filter(Student.class_id == class_id)
         
         result = query.first()
         
@@ -72,7 +70,7 @@ class BehaviorRepository:
         }
     
     @staticmethod
-    def get_low_attendance(threshold: float = 60.0, limit: int = 20) -> List[Dict]:
+    def get_low_attendance(class_id: int, threshold: float = 60.0, limit: int = 20) -> List[Dict]:
         """
         获取低到课率学生
         
@@ -85,6 +83,7 @@ class BehaviorRepository:
         """
         results = db.session.query(Student, StudentBehavior)\
             .join(StudentBehavior)\
+            .filter(Student.class_id == class_id)\
             .filter(StudentBehavior.attendance_rate < threshold)\
             .order_by(StudentBehavior.attendance_rate)\
             .limit(limit)\
@@ -98,7 +97,7 @@ class BehaviorRepository:
         } for s, b in results]
     
     @staticmethod
-    def get_top_performers(limit: int = 10, class_id: Optional[int] = None) -> List[Dict]:
+    def get_top_performers(class_id: int, limit: int = 10) -> List[Dict]:
         """
         获取行为表现最好的学生
         
@@ -111,10 +110,8 @@ class BehaviorRepository:
         """
         query = db.session.query(Student, StudentBehavior)\
             .join(StudentBehavior)\
+            .filter(Student.class_id == class_id)\
             .order_by(desc(StudentBehavior.behavior_score))
-        
-        if class_id:
-            query = query.filter(Student.class_id == class_id)
         
         results = query.limit(limit).all()
         

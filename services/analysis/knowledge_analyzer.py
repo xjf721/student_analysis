@@ -20,13 +20,15 @@ class KnowledgeAnalyzer:
     分析学生的知识点掌握情况，生成热力图数据
     """
     
-    def __init__(self, class_id: Optional[int] = None):
+    def __init__(self, class_id: int):
         """
         初始化知识点分析器
         
         Args:
             class_id: 班级ID
         """
+        if not class_id:
+            raise ValueError('class_id is required')
         self.class_id = class_id
     
     def analyze_all(self) -> Dict:
@@ -56,12 +58,9 @@ class KnowledgeAnalyzer:
         """
         获取知识点掌握数据
         """
-        query = StudentKnowledgeMastery.query
-        
-        if self.class_id:
-            query = query.join(Student).filter(Student.class_id == self.class_id)
-        
-        return query.all()
+        return StudentKnowledgeMastery.query.join(Student).filter(
+            Student.class_id == self.class_id
+        ).all()
     
     def get_knowledge_list(self) -> List[str]:
         """
@@ -72,7 +71,8 @@ class KnowledgeAnalyzer:
         """
         results = db.session.query(
             StudentKnowledgeMastery.knowledge_name
-        ).filter(
+        ).join(Student).filter(
+            Student.class_id == self.class_id,
             StudentKnowledgeMastery.knowledge_name != '__汇总__'
         ).distinct().all()
         
@@ -90,7 +90,8 @@ class KnowledgeAnalyzer:
             func.avg(StudentKnowledgeMastery.mastery_rate).label('avg_rate'),
             func.count(StudentKnowledgeMastery.id).label('student_count'),
             func.sum(func.IF(StudentKnowledgeMastery.mastery_rate < 40, 1, 0)).label('weak_count')
-        ).filter(
+        ).join(Student).filter(
+            Student.class_id == self.class_id,
             StudentKnowledgeMastery.knowledge_name != '__汇总__'
         ).group_by(
             StudentKnowledgeMastery.knowledge_name
@@ -134,6 +135,10 @@ class KnowledgeAnalyzer:
         Returns:
             薄弱知识点列表
         """
+        student = Student.query.filter_by(id=student_id, class_id=self.class_id).first()
+        if not student:
+            return []
+
         results = StudentKnowledgeMastery.query.filter(
             StudentKnowledgeMastery.student_id == student_id,
             StudentKnowledgeMastery.mastery_rate < threshold
@@ -143,7 +148,7 @@ class KnowledgeAnalyzer:
         
         return [r.to_dict() for r in results]
     
-    def get_heatmap_data(self, class_id: Optional[int] = None, 
+    def get_heatmap_data(self,
                          knowledge_limit: int = 20,
                          student_limit: int = 50) -> Dict:
         """
@@ -165,11 +170,7 @@ class KnowledgeAnalyzer:
             return {'students': [], 'knowledge': [], 'data': []}
         
         # 获取学生列表
-        query = Student.query
-        if class_id:
-            query = query.filter_by(class_id=class_id)
-        
-        students = query.limit(student_limit).all()
+        students = Student.query.filter_by(class_id=self.class_id).limit(student_limit).all()
         
         # 构建数据矩阵
         data = []
@@ -198,6 +199,7 @@ class KnowledgeAnalyzer:
         """
         results = db.session.query(Student, StudentKnowledgeMastery)\
             .join(StudentKnowledgeMastery, Student.id == StudentKnowledgeMastery.student_id)\
+            .filter(Student.class_id == self.class_id)\
             .filter(StudentKnowledgeMastery.knowledge_name == knowledge_name)\
             .order_by(desc(StudentKnowledgeMastery.mastery_rate))\
             .limit(limit)\
@@ -221,7 +223,7 @@ class KnowledgeAnalyzer:
         Returns:
             对比数据
         """
-        student = Student.get_by_id(student_id)
+        student = Student.query.filter_by(id=student_id, class_id=self.class_id).first()
         if not student:
             return []
         
@@ -230,15 +232,11 @@ class KnowledgeAnalyzer:
         student_dict = {m.knowledge_name: m.mastery_rate for m in student_masteries}
         
         # 获取班级平均
-        class_id = student.class_id
-        if not class_id:
-            return []
-        
         class_stats = db.session.query(
             StudentKnowledgeMastery.knowledge_name,
             func.avg(StudentKnowledgeMastery.mastery_rate).label('avg_rate')
         ).join(Student).filter(
-            Student.class_id == class_id
+            Student.class_id == self.class_id
         ).group_by(
             StudentKnowledgeMastery.knowledge_name
         ).all()

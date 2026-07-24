@@ -9,26 +9,34 @@
 - 薄弱知识点列表
 - 风险原因分析
 """
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, abort, render_template, jsonify, request
 from repositories import StudentRepository, KnowledgeRepository, WarningRepository
 from services.analysis import KnowledgeAnalyzer, PracticeAnalyzer
+from services.class_context import get_active_class_id, require_active_class
 
 student_bp = Blueprint('student', __name__)
 
 
 @student_bp.route('/students')
+@require_active_class
 def student_list():
     """学生列表页面"""
+    class_id = get_active_class_id()
     return render_template('student/list.html')
 
 
 @student_bp.route('/student/<int:student_id>')
+@require_active_class
 def student_detail(student_id):
     """学生画像页面"""
+    class_id = get_active_class_id()
+    if not StudentRepository.get_by_id(student_id, class_id):
+        abort(404)
     return render_template('student/detail.html', student_id=student_id)
 
 
 @student_bp.route('/api/students')
+@require_active_class
 def get_students():
     """
     获取学生列表
@@ -40,11 +48,11 @@ def get_students():
     Returns:
         学生列表
     """
-    class_id = request.args.get('class_id', type=int)
-    keyword = request.args.get('keyword', '')
+    class_id = get_active_class_id()
+    keyword = request.args.get('keyword', '').strip()
     
     if keyword:
-        students = StudentRepository.search(keyword)
+        students = StudentRepository.search(keyword, class_id)
     else:
         students = StudentRepository.get_all(class_id)
     
@@ -52,6 +60,7 @@ def get_students():
 
 
 @student_bp.route('/api/student/<int:student_id>')
+@require_active_class
 def get_student_detail(student_id):
     """
     获取学生详细信息
@@ -62,7 +71,8 @@ def get_student_detail(student_id):
     Returns:
         学生详情
     """
-    student_detail = StudentRepository.get_with_details(student_id)
+    class_id = get_active_class_id()
+    student_detail = StudentRepository.get_with_details(student_id, class_id)
     
     if not student_detail:
         return jsonify({'error': '学生不存在'}), 404
@@ -71,6 +81,7 @@ def get_student_detail(student_id):
 
 
 @student_bp.route('/api/student/<int:student_id>/radar')
+@require_active_class
 def get_student_radar(student_id):
     """
     获取学生学习行为雷达图数据
@@ -81,9 +92,13 @@ def get_student_radar(student_id):
     Returns:
         雷达图数据
     """
-    student = StudentRepository.get_by_id(student_id)
+    class_id = get_active_class_id()
+    student = StudentRepository.get_by_id(student_id, class_id)
     
-    if not student or not student.behavior:
+    if not student:
+        return jsonify({'error': '学生不存在'}), 404
+
+    if not student.behavior:
         return jsonify({
             'indicator': [],
             'values': []
@@ -110,6 +125,7 @@ def get_student_radar(student_id):
 
 
 @student_bp.route('/api/student/<int:student_id>/weak-points')
+@require_active_class
 def get_student_weak_points(student_id):
     """
     获取学生薄弱知识点
@@ -120,13 +136,17 @@ def get_student_weak_points(student_id):
     Returns:
         薄弱知识点列表
     """
-    analyzer = KnowledgeAnalyzer()
+    class_id = get_active_class_id()
+    if not StudentRepository.get_by_id(student_id, class_id):
+        return jsonify({'error': '学生不存在'}), 404
+    analyzer = KnowledgeAnalyzer(class_id)
     weak_points = analyzer.get_student_weak_points(student_id, threshold=60)
     
     return jsonify(weak_points)
 
 
 @student_bp.route('/api/student/<int:student_id>/theory-practice')
+@require_active_class
 def get_theory_practice_comparison(student_id):
     """
     获取学生理论与实践对比数据
@@ -137,15 +157,17 @@ def get_theory_practice_comparison(student_id):
     Returns:
         对比数据
     """
-    student = StudentRepository.get_by_id(student_id)
+    class_id = get_active_class_id()
+    student = StudentRepository.get_by_id(student_id, class_id)
     
     if not student:
         return jsonify({'error': '学生不存在'}), 404
     
-    return jsonify(StudentRepository.get_theory_practice(student_id))
+    return jsonify(StudentRepository.get_theory_practice(student_id, class_id))
 
 
 @student_bp.route('/api/student/<int:student_id>/class-comparison')
+@require_active_class
 def get_class_comparison(student_id):
     """
     获取学生与班级平均对比数据
@@ -156,19 +178,27 @@ def get_class_comparison(student_id):
     Returns:
         对比数据
     """
-    analyzer = KnowledgeAnalyzer()
+    class_id = get_active_class_id()
+    if not StudentRepository.get_by_id(student_id, class_id):
+        return jsonify({'error': '学生不存在'}), 404
+    analyzer = KnowledgeAnalyzer(class_id)
     comparison_data = analyzer.compare_with_class_avg(student_id)
     
     return jsonify(comparison_data)
 
 
 @student_bp.route('/student/<int:student_id>/overview')
+@require_active_class
 def student_overview(student_id):
     """学生数据全览页面"""
+    class_id = get_active_class_id()
+    if not StudentRepository.get_by_id(student_id, class_id):
+        abort(404)
     return render_template('student/overview.html', student_id=student_id)
 
 
 @student_bp.route('/api/student/<int:student_id>/overview')
+@require_active_class
 def get_student_overview(student_id):
     """
     获取学生全览聚合数据
@@ -179,7 +209,8 @@ def get_student_overview(student_id):
     Returns:
         全览数据JSON
     """
-    overview_data = StudentRepository.get_full_overview(student_id)
+    class_id = get_active_class_id()
+    overview_data = StudentRepository.get_full_overview(student_id, class_id)
     
     if not overview_data:
         return jsonify({'error': '学生不存在'}), 404

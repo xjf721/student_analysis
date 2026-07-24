@@ -10,17 +10,21 @@
 from flask import Blueprint, render_template, jsonify, request
 from repositories import WarningRepository
 from services.analysis import WarningEngine
+from services.class_context import get_active_class_id, require_active_class
 
 warning_bp = Blueprint('warning', __name__)
 
 
 @warning_bp.route('/warning')
+@require_active_class
 def warning_page():
     """风险预警页面"""
+    class_id = get_active_class_id()
     return render_template('warning/index.html')
 
 
 @warning_bp.route('/api/warning/students')
+@require_active_class
 def get_warning_students():
     """
     获取预警学生列表
@@ -32,15 +36,17 @@ def get_warning_students():
     Returns:
         预警学生列表
     """
+    class_id = get_active_class_id()
     min_score = request.args.get('min_score', default=60.0, type=float)
     limit = request.args.get('limit', default=50, type=int)
     
-    students = WarningRepository.get_high_risk_students(min_score=min_score, limit=limit)
+    students = WarningRepository.get_high_risk_students(class_id, min_score=min_score, limit=limit)
     
     return jsonify(students)
 
 
 @warning_bp.route('/api/warning/statistics')
+@require_active_class
 def get_warning_statistics():
     """
     获取预警统计数据
@@ -51,7 +57,7 @@ def get_warning_statistics():
     Returns:
         统计数据
     """
-    class_id = request.args.get('class_id', type=int)
+    class_id = get_active_class_id()
     
     stats = WarningRepository.get_statistics(class_id=class_id)
     
@@ -59,6 +65,7 @@ def get_warning_statistics():
 
 
 @warning_bp.route('/api/warning/distribution')
+@require_active_class
 def get_warning_distribution():
     """
     获取预警类型分布
@@ -66,12 +73,14 @@ def get_warning_distribution():
     Returns:
         类型分布数据
     """
-    distribution = WarningRepository.get_type_distribution()
+    class_id = get_active_class_id()
+    distribution = WarningRepository.get_type_distribution(class_id)
     
     return jsonify(distribution)
 
 
 @warning_bp.route('/api/warning/by-level/<int:level>')
+@require_active_class
 def get_students_by_level(level):
     """
     获取指定等级的预警学生
@@ -85,14 +94,16 @@ def get_students_by_level(level):
     Returns:
         学生列表
     """
+    class_id = get_active_class_id()
     limit = request.args.get('limit', default=50, type=int)
     
-    students = WarningRepository.get_by_level(level, limit=limit)
+    students = WarningRepository.get_by_level(class_id, level, limit=limit)
     
     return jsonify(students)
 
 
 @warning_bp.route('/api/warning/refresh', methods=['POST'])
+@require_active_class
 def refresh_warnings():
     """
     刷新预警数据（重新分析）
@@ -100,7 +111,8 @@ def refresh_warnings():
     Returns:
         刷新结果
     """
-    engine = WarningEngine()
+    class_id = get_active_class_id()
+    engine = WarningEngine(class_id)
     result = engine.refresh_warnings()
     
     return jsonify(result)

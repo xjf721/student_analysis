@@ -36,6 +36,7 @@ from services.importers import (
 )
 from services.importers.parser_utils import detect_file_type
 from services.analysis import BehaviorAnalyzer, KnowledgeAnalyzer, PracticeAnalyzer, WarningEngine
+from services.class_context import get_active_class_id, require_active_class
 
 import_bp = Blueprint('import', __name__)
 
@@ -111,7 +112,7 @@ def upload_file():
         # 导入成功后自动触发分析
         if result.get('success'):
             try:
-                analysis_result = run_all_analysis()
+                analysis_result = run_all_analysis(result['class_id'])
                 result['analysis'] = analysis_result
             except Exception as e:
                 result['analysis_warning'] = f'自动分析失败: {e}'
@@ -203,9 +204,16 @@ def import_folder():
         'results': results
     }
 
-    if imported_files > 0:
+    imported_class_ids = sorted({
+        item['class_id'] for item in results
+        if item.get('success') and item.get('class_id')
+    })
+    if imported_class_ids:
         try:
-            response['analysis'] = run_all_analysis()
+            response['analysis'] = {
+                str(class_id): run_all_analysis(class_id)
+                for class_id in imported_class_ids
+            }
         except Exception as e:
             response['analysis_warning'] = f'自动分析失败: {e}'
 
@@ -299,6 +307,7 @@ def import_data(file_path: str, import_type: str = '', original_filename: str = 
     # 执行导入
     result = importer.execute()
     result['import_type'] = import_type
+    result['class_id'] = importer.class_id
     
     return result
 
@@ -322,6 +331,7 @@ def get_import_records():
 
 
 @import_bp.route('/api/import/analyze', methods=['POST'])
+@require_active_class
 def run_analysis():
     """
     一键重新分析所有数据
@@ -329,8 +339,9 @@ def run_analysis():
     Returns:
         分析结果
     """
+    class_id = get_active_class_id()
     try:
-        results = run_all_analysis()
+        results = run_all_analysis(class_id)
         return jsonify({
             'success': True,
             'message': '分析完成',
@@ -387,7 +398,7 @@ def clear_all_data():
         }), 500
 
 
-def run_all_analysis() -> dict:
+def run_all_analysis(class_id: int) -> dict:
     """
     执行全量分析（内部函数，供自动分析和手动分析共用）
     
@@ -400,28 +411,28 @@ def run_all_analysis() -> dict:
     
     # 1. 行为分析
     try:
-        behavior_analyzer = BehaviorAnalyzer()
+        behavior_analyzer = BehaviorAnalyzer(class_id)
         results['behavior'] = behavior_analyzer.analyze_all()
     except Exception as e:
         results['behavior'] = {'success': False, 'message': str(e)}
     
     # 2. 实践分析
     try:
-        practice_analyzer = PracticeAnalyzer()
+        practice_analyzer = PracticeAnalyzer(class_id)
         results['practice'] = practice_analyzer.analyze_all()
     except Exception as e:
         results['practice'] = {'success': False, 'message': str(e)}
     
     # 3. 知识点分析
     try:
-        knowledge_analyzer = KnowledgeAnalyzer()
+        knowledge_analyzer = KnowledgeAnalyzer(class_id)
         results['knowledge'] = knowledge_analyzer.analyze_all()
     except Exception as e:
         results['knowledge'] = {'success': False, 'message': str(e)}
     
     # 4. 风险预警
     try:
-        warning_engine = WarningEngine()
+        warning_engine = WarningEngine(class_id)
         results['warning'] = warning_engine.analyze_all()
     except Exception as e:
         results['warning'] = {'success': False, 'message': str(e)}

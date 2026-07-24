@@ -31,7 +31,7 @@ class WarningRepository:
         return WarningRecord.get_latest_by_student_id(student_id)
     
     @staticmethod
-    def get_high_risk_students(min_score: float = 60.0, limit: int = 50) -> List[Dict]:
+    def get_high_risk_students(class_id: int, min_score: float = 60.0, limit: int = 50) -> List[Dict]:
         """
         获取高风险学生列表
         
@@ -44,6 +44,7 @@ class WarningRepository:
         """
         results = db.session.query(Student, WarningRecord)\
             .join(WarningRecord)\
+            .filter(Student.class_id == class_id)\
             .filter(WarningRecord.warning_score >= min_score)\
             .order_by(desc(WarningRecord.warning_score))\
             .limit(limit)\
@@ -62,7 +63,7 @@ class WarningRepository:
         } for s, w in results]
     
     @staticmethod
-    def get_statistics(class_id: Optional[int] = None) -> Dict:
+    def get_statistics(class_id: int) -> Dict:
         """
         获取预警统计数据
         
@@ -77,8 +78,7 @@ class WarningRepository:
             func.count(WarningRecord.id).label('count')
         ).group_by(WarningRecord.warning_level)
         
-        if class_id:
-            query = query.join(Student).filter(Student.class_id == class_id)
+        query = query.join(Student).filter(Student.class_id == class_id)
         
         results = query.all()
         
@@ -96,7 +96,7 @@ class WarningRepository:
         return stats
     
     @staticmethod
-    def get_type_distribution() -> Dict:
+    def get_type_distribution(class_id: int) -> Dict:
         """
         获取预警类型分布
         
@@ -106,6 +106,8 @@ class WarningRepository:
         results = db.session.query(
             WarningRecord.warning_type,
             func.count(WarningRecord.id).label('count')
+        ).join(Student).filter(
+            Student.class_id == class_id
         ).group_by(WarningRecord.warning_type).all()
         
         return {
@@ -114,7 +116,7 @@ class WarningRepository:
         }
     
     @staticmethod
-    def get_by_level(level: int, limit: int = 50) -> List[Dict]:
+    def get_by_level(class_id: int, level: int, limit: int = 50) -> List[Dict]:
         """
         获取指定等级的预警学生
         
@@ -127,6 +129,7 @@ class WarningRepository:
         """
         results = db.session.query(Student, WarningRecord)\
             .join(WarningRecord)\
+            .filter(Student.class_id == class_id)\
             .filter(WarningRecord.warning_level == level)\
             .order_by(desc(WarningRecord.warning_score))\
             .limit(limit)\
