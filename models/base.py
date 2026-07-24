@@ -5,6 +5,7 @@
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import Column, Integer, DateTime
+from sqlalchemy import inspect, text
 import pymysql
 
 
@@ -95,4 +96,49 @@ def init_db(app) -> None:
     with app.app_context():
         # 创建所有表（如果不存在）
         db.create_all()
+        ensure_schema_columns()
         print("✓ 数据库表初始化完成")
+
+
+def ensure_schema_columns() -> None:
+    """
+    为已存在的旧表补充新增列。
+
+    项目没有迁移框架，db.create_all() 不会给旧表自动加列；这里仅添加向后兼容的可空/默认列。
+    """
+    inspector = inspect(db.engine)
+    existing_tables = set(inspector.get_table_names())
+    dialect = db.engine.dialect.name
+
+    def sql_type(mysql_type: str, sqlite_type: str = None) -> str:
+        if dialect == 'mysql':
+            return mysql_type
+        return sqlite_type or mysql_type
+
+    table_columns = {
+        'student_knowledge_mastery': {
+            'completion_rate': sql_type('FLOAT NULL'),
+            'correct_rate': sql_type('FLOAT NULL'),
+        },
+        'student_assignment_detail': {
+            'deadline_progress': sql_type('VARCHAR(50) NULL'),
+            'latest_progress': sql_type('VARCHAR(50) NULL'),
+            'challenge_score': sql_type('FLOAT NULL'),
+            'total_challenge_count': sql_type('INTEGER DEFAULT 0'),
+            'completed_challenge_count': sql_type('INTEGER DEFAULT 0'),
+            'challenge_completion_rate': sql_type('FLOAT DEFAULT 0'),
+            'pass_time': sql_type('DATETIME NULL'),
+            'last_finish_time': sql_type('DATETIME NULL'),
+        },
+    }
+
+    with db.engine.begin() as connection:
+        for table_name, columns in table_columns.items():
+            if table_name not in existing_tables:
+                continue
+
+            existing_columns = {col['name'] for col in inspector.get_columns(table_name)}
+            for column_name, column_type in columns.items():
+                if column_name in existing_columns:
+                    continue
+                connection.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}'))

@@ -9,13 +9,31 @@
 - 导入日志
 - 一键重新分析
 """
-import os
 from flask import Blueprint, render_template, jsonify, request, current_app
 from werkzeug.utils import secure_filename
 from pathlib import Path
 
-from models import ImportRecord
-from services.importers import RainClassImporter, RainClassSummaryImporter, RainClassKnowledgeDetailImporter, EducoderImporter, EducoderActivityImporter
+from models import (
+    db,
+    ImportRecord,
+    Student,
+    ClassInfo,
+    StudentBehavior,
+    StudentPractice,
+    StudentAssignmentDetail,
+    StudentAssignmentChallenge,
+    StudentKnowledgeMastery,
+    KnowledgePointSummary,
+    WarningRecord,
+)
+from services.importers import (
+    RainClassImporter,
+    RainClassSummaryImporter,
+    RainClassKnowledgeDetailImporter,
+    RainClassKnowledgePointSummaryImporter,
+    EducoderImporter,
+    EducoderActivityImporter,
+)
 from services.importers.parser_utils import detect_file_type
 from services.analysis import BehaviorAnalyzer, KnowledgeAnalyzer, PracticeAnalyzer, WarningEngine
 
@@ -26,6 +44,19 @@ def allowed_file(filename: str) -> bool:
     """检查文件类型是否允许"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in current_app.config.get('ALLOWED_EXTENSIONS', {'xlsx', 'xls'})
+
+
+def resolve_import_folder(folder: str) -> Path:
+    """
+    解析批量导入目录。
+
+    相对路径以项目根目录为基准，便于直接填写 new-datas；绝对路径保持原样。
+    """
+    folder = (folder or 'new-datas').strip().strip('"').strip("'")
+    folder_path = Path(folder).expanduser()
+    if not folder_path.is_absolute():
+        folder_path = Path(current_app.root_path) / folder_path
+    return folder_path.resolve()
 
 
 @import_bp.route('/import')
@@ -90,6 +121,97 @@ def upload_file():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
+@import_bp.route('/api/import/folder', methods=['POST'])
+def import_folder():
+    """
+    一键导入指定文件夹中的所有Excel文件。
+
+    Body:
+        folder: 文件夹路径；支持相对项目根目录的路径，默认 new-datas。
+
+    Returns:
+        批量导入结果
+    """
+    payload = request.get_json(silent=True) or request.form
+    folder = payload.get('folder', 'new-datas')
+    folder_path = resolve_import_folder(folder)
+
+    if not folder_path.exists():
+        return jsonify({
+            'success': False,
+            'message': f'文件夹不存在: {folder_path}'
+        }), 400
+
+    if not folder_path.is_dir():
+        return jsonify({
+            'success': False,
+            'message': f'指定路径不是文件夹: {folder_path}'
+        }), 400
+
+    excel_files = sorted(
+        [
+            file_path for file_path in folder_path.iterdir()
+            if file_path.is_file() and allowed_file(file_path.name)
+        ],
+        key=lambda p: p.name.lower()
+    )
+
+    if not excel_files:
+        return jsonify({
+            'success': False,
+            'message': f'文件夹中没有可导入的Excel文件: {folder_path}',
+            'folder': str(folder_path),
+            'total_files': 0,
+            'results': []
+        }), 400
+
+    results = []
+    imported_files = 0
+    failed_files = 0
+    total_imported_rows = 0
+
+    for file_path in excel_files:
+        try:
+            result = import_data(str(file_path), '', file_path.name)
+        except Exception as e:
+            result = {
+                'success': False,
+                'message': str(e),
+                'errors': [str(e)],
+                'warnings': [],
+                'imported_count': 0
+            }
+
+        result['filename'] = file_path.name
+        results.append(result)
+
+        if result.get('success'):
+            imported_files += 1
+            total_imported_rows += result.get('imported_count', 0) or 0
+        else:
+            failed_files += 1
+
+    response = {
+        'success': failed_files == 0,
+        'partial_success': imported_files > 0 and failed_files > 0,
+        'message': f'共发现 {len(excel_files)} 个Excel文件，成功导入 {imported_files} 个，失败 {failed_files} 个',
+        'folder': str(folder_path),
+        'total_files': len(excel_files),
+        'imported_files': imported_files,
+        'failed_files': failed_files,
+        'total_imported_rows': total_imported_rows,
+        'results': results
+    }
+
+    if imported_files > 0:
+        try:
+            response['analysis'] = run_all_analysis()
+        except Exception as e:
+            response['analysis_warning'] = f'自动分析失败: {e}'
+
+    return jsonify(response)
+
+
 def import_data(file_path: str, import_type: str = '', original_filename: str = '') -> dict:
     """
     导入数据
@@ -111,7 +233,9 @@ def import_data(file_path: str, import_type: str = '', original_filename: str = 
     if not import_type:
         # 雨课堂系列
         if '雨课堂' in filename:
-            if '学生汇总' in filename or '汇总' in filename:
+            if '按知识点汇总' in filename or ('知识点' in filename and '汇总' in filename and '学生' not in filename):
+                import_type = '雨课堂-知识点汇总'
+            elif '学生汇总' in filename or '按学生汇总' in filename or '汇总' in filename:
                 import_type = '雨课堂-学生汇总'
             elif '知识图谱' in filename or '明细' in filename:
                 import_type = '雨课堂-知识图谱明细'
@@ -139,7 +263,10 @@ def import_data(file_path: str, import_type: str = '', original_filename: str = 
     
     # 雨课堂系列
     if import_type == '雨课堂' or '雨课堂' in filename:
-        if '学生汇总' in filename or '汇总' in filename:
+        if import_type == '雨课堂-知识点汇总' or '按知识点汇总' in filename or ('知识点' in filename and '汇总' in filename and '学生' not in filename):
+            importer = RainClassKnowledgePointSummaryImporter(file_path, display_filename=original_filename)
+            import_type = '雨课堂-知识点汇总'
+        elif '学生汇总' in filename or '按学生汇总' in filename or '汇总' in filename:
             importer = RainClassSummaryImporter(file_path, display_filename=original_filename)
             import_type = '雨课堂-学生汇总'
         elif '知识图谱' in filename or '明细' in filename:
@@ -217,6 +344,49 @@ def run_analysis():
         }), 500
 
 
+@import_bp.route('/api/import/clear-all', methods=['POST'])
+def clear_all_data():
+    """
+    一键清空所有已导入和已分析的数据。
+
+    仅清空数据库数据，不删除磁盘上的Excel原始文件。
+    """
+    try:
+        delete_order = [
+            WarningRecord,
+            StudentAssignmentChallenge,
+            StudentAssignmentDetail,
+            StudentKnowledgeMastery,
+            KnowledgePointSummary,
+            StudentBehavior,
+            StudentPractice,
+            Student,
+            ClassInfo,
+            ImportRecord,
+        ]
+        counts = {}
+
+        for model in delete_order:
+            counts[model.__tablename__] = db.session.query(model).delete(synchronize_session=False)
+
+        db.session.commit()
+
+        total_deleted = sum(counts.values())
+        return jsonify({
+            'success': True,
+            'message': f'已清空数据库数据，共删除 {total_deleted} 条记录',
+            'counts': counts,
+            'total_deleted': total_deleted
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': f'清空数据失败: {str(e)}'
+        }), 500
+
+
 def run_all_analysis() -> dict:
     """
     执行全量分析（内部函数，供自动分析和手动分析共用）
@@ -283,6 +453,7 @@ def get_import_types():
         {'type': '雨课堂', 'description': '学习过程数据（到课率、视频完成率等）'},
         {'type': '雨课堂-学生汇总', 'description': '学生汇总表（知识点掌握率、完成率）'},
         {'type': '雨课堂-知识图谱明细', 'description': '知识图谱学习数据明细表'},
+        {'type': '雨课堂-知识点汇总', 'description': '按知识点汇总表（掌握率、完成率、正确率）'},
         {'type': '头歌', 'description': '总成绩'},
         {'type': '头歌-活跃度', 'description': '课堂活跃度统计'},
         {'type': '头歌-作业成绩', 'description': '作业成绩表'}

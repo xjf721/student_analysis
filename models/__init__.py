@@ -7,7 +7,10 @@ from .student import Student
 from .class_model import ClassInfo
 from .behavior import StudentBehavior
 from .practice import StudentPractice
+from .assignment_detail import StudentAssignmentDetail
+from .assignment_challenge import StudentAssignmentChallenge
 from .knowledge import StudentKnowledgeMastery
+from .knowledge_point_summary import KnowledgePointSummary
 from .warning import WarningRecord
 from .import_record import ImportRecord
 
@@ -18,7 +21,10 @@ __all__ = [
     'ClassInfo',
     'StudentBehavior',
     'StudentPractice',
+    'StudentAssignmentDetail',
+    'StudentAssignmentChallenge',
     'StudentKnowledgeMastery',
+    'KnowledgePointSummary',
     'WarningRecord',
     'ImportRecord'
 ]

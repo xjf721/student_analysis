@@ -46,6 +46,52 @@ def get_knowledge_statistics():
     return jsonify(stats)
 
 
+@knowledge_bp.route('/api/knowledge/point-summary')
+def get_knowledge_point_summary():
+    """
+    获取雨课堂按知识点汇总数据。
+
+    Query Parameters:
+        limit: 返回数量（可选）
+
+    Returns:
+        知识点汇总列表
+    """
+    limit = request.args.get('limit', type=int)
+    stats = KnowledgeRepository.get_point_summary_statistics(limit=limit)
+
+    return jsonify(stats)
+
+
+@knowledge_bp.route('/api/knowledge/students')
+def get_students_by_knowledge_query():
+    """
+    按查询参数获取指定知识点掌握情况的学生列表。
+
+    Query Parameters:
+        knowledge_name: 知识点名称
+        min_rate: 最低掌握率（可选）
+        max_rate: 最高掌握率（可选）
+        limit: 返回数量（可选）
+    """
+    knowledge_name = request.args.get('knowledge_name', '').strip()
+    if not knowledge_name:
+        return jsonify({'error': '缺少 knowledge_name 参数'}), 400
+
+    min_rate = request.args.get('min_rate', type=float)
+    max_rate = request.args.get('max_rate', type=float)
+    limit = request.args.get('limit', default=50, type=int)
+
+    students = KnowledgeRepository.get_students_by_knowledge(
+        knowledge_name,
+        min_rate=min_rate,
+        max_rate=max_rate,
+        limit=limit
+    )
+
+    return jsonify(students)
+
+
 @knowledge_bp.route('/api/knowledge/<knowledge_name>/students')
 def get_students_by_knowledge(knowledge_name):
     """

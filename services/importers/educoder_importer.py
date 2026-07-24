@@ -9,6 +9,7 @@
 """
 from typing import List, Dict, Tuple, Optional
 from datetime import datetime
+import re
 import pandas as pd
 
 from .base_importer import BaseImporter
@@ -16,7 +17,14 @@ from .parser_utils import (
     safe_float, safe_int, extract_rate,
     clean_student_no, clean_name, auto_map_columns, read_excel_smart
 )
-from models import db, Student, ClassInfo, StudentPractice, StudentKnowledgeMastery, ImportRecord
+from models import (
+    db,
+    Student,
+    StudentPractice,
+    StudentAssignmentDetail,
+    StudentAssignmentChallenge,
+    ImportRecord,
+)
 
 
 class EducoderImporter(BaseImporter):
@@ -82,7 +90,6 @@ class EducoderImporter(BaseImporter):
         if self.df is None:
             return False, ['数据未加载']
         
-        # 使用自动列名映射
         df = auto_map_columns(self.df)
         
         # 尝试识别学号列
@@ -93,9 +100,6 @@ class EducoderImporter(BaseImporter):
             errors.append('无法识别学号列，请检查文件格式')
             return False, errors
         
-        # 获取成绩列
-        score_cols = self._find_score_columns()
-        
         for idx, row in df.iterrows():
             try:
                 student_no = clean_student_no(row.get(student_no_col))
@@ -103,28 +107,15 @@ class EducoderImporter(BaseImporter):
                     continue
                 
                 name = clean_name(row.get(name_col)) if name_col else None
-                
-                # 计算成绩
-                total_score = 0.0
-                score_count = 0
-                
-                for col in score_cols:
-                    score = safe_float(row.get(col), None)
-                    if score is not None:
-                        total_score += score
-                        score_count += 1
-                
-                avg_score = total_score / score_count if score_count > 0 else 0
+
+                total_score = self._extract_final_score(row)
+                personal_total_score = safe_float(row.get('个人总成绩'), None)
                 
                 practice_data = {
                     'student_no': student_no,
                     'name': name,
                     'total_score': total_score,
-                    'activity_score': safe_float(row.get('活跃度', row.get('活跃度得分', 0))),
-                    'avg_experiment_score': avg_score,
-                    'assignment_count': score_count,
-                    'high_retry_count': 0,  # 需要从作业明细获取
-                    'last_submit_time': None
+                    'personal_total_score': personal_total_score,
                 }
                 
                 self.parsed_data.append(practice_data)
@@ -134,6 +125,14 @@ class EducoderImporter(BaseImporter):
         
         self.errors = errors
         return len(self.parsed_data) > 0, errors
+
+    def _extract_final_score(self, row) -> float:
+        """从头歌总成绩表提取平台百分制最终成绩。"""
+        for col in ['最终占比得分', '最终成绩', '总成绩', '成绩']:
+            score = safe_float(row.get(col), None)
+            if score is not None:
+                return score
+        return 0.0
     
     def _save_to_db(self) -> int:
         """
@@ -169,17 +168,14 @@ class EducoderImporter(BaseImporter):
                     practice = StudentPractice(student_id=student.id)
                 
                 practice.total_score = data['total_score']
-                practice.activity_score = data['activity_score']
-                practice.avg_experiment_score = data['avg_experiment_score']
-                practice.assignment_count = data['assignment_count']
-                practice.high_retry_count = data['high_retry_count']
-                practice.last_submit_time = data['last_submit_time']
+                practice.activity_score = practice.activity_score or 0.0
+                practice.avg_experiment_score = practice.avg_experiment_score or 0.0
+                practice.assignment_count = practice.assignment_count or 0
+                practice.high_retry_count = practice.high_retry_count or 0
                 
                 # 计算综合评分
                 practice.practice_score = practice.calculate_practice_score()
-                practice.practice_level = StudentKnowledgeMastery.calculate_mastery_level(
-                    practice.practice_score
-                )
+                practice.practice_level = StudentPractice.calculate_practice_level(practice.practice_score)
                 
                 db.session.add(practice)
                 success_count += 1
@@ -364,6 +360,12 @@ class EducoderActivityImporter(EducoderImporter):
                     practice = StudentPractice(student_id=student.id)
                 
                 practice.activity_score = data['activity_score']
+                practice.total_score = practice.total_score or 0.0
+                practice.avg_experiment_score = practice.avg_experiment_score or 0.0
+                practice.assignment_count = practice.assignment_count or 0
+                practice.high_retry_count = practice.high_retry_count or 0
+                practice.practice_score = practice.calculate_practice_score()
+                practice.practice_level = StudentPractice.calculate_practice_level(practice.practice_score)
                 db.session.add(practice)
                 success_count += 1
                 
@@ -390,9 +392,9 @@ class EducoderAssignmentImporter(EducoderImporter):
         """作业成绩表读取第一个sheet即可，实际解析由 _read_all_sheets 完成"""
         return read_excel_smart(self.file_path)
     
-    def _read_all_sheets(self) -> List[pd.DataFrame]:
-        """读取所有sheet的DataFrame列表"""
-        dfs = []
+    def _read_all_sheets(self) -> List[Tuple[int, str, pd.DataFrame]]:
+        """读取所有sheet的DataFrame列表，保留sheet顺序和名称。"""
+        sheets = []
         xls = None
         for eng in ['openpyxl', 'xlrd']:
             try:
@@ -403,13 +405,13 @@ class EducoderAssignmentImporter(EducoderImporter):
         if xls is None:
             raise ValueError(f'无法读取文件: {self.file_path}')
         
-        for sheet in xls.sheet_names:
+        for sheet_order, sheet in enumerate(xls.sheet_names, start=1):
             try:
                 df = read_excel_smart(self.file_path, sheet_name=sheet)
-                dfs.append(df)
+                sheets.append((sheet_order, sheet, df))
             except Exception as e:
                 self.warnings.append(f'跳过sheet {sheet}: {e}')
-        return dfs
+        return sheets
     
     def _find_column_in_sheet(self, df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
         """在DataFrame的列中查找候选列名，支持精确匹配和包含匹配"""
@@ -446,15 +448,26 @@ class EducoderAssignmentImporter(EducoderImporter):
         # 按学号汇总学生数据
         student_scores = {}
         student_names = {}
+        student_high_retries = {}
+        student_details = {}
+        student_last_submit_times = {}
         
-        for sheet_idx, df in enumerate(all_sheets):
+        for sheet_order, sheet_name, df in all_sheets:
             student_no_col = self._find_column_in_sheet(df, ['学号'])
             name_col = self._find_column_in_sheet(df, ['真实姓名', '姓名'])
             score_col = self._find_column_in_sheet(df, ['最终成绩', '总分'])
+            challenge_score_col = self._find_column_in_sheet(df, ['关卡得分'])
             retry_col = self._find_column_in_sheet(df, ['总评测次数'])
+            status_col = self._find_column_in_sheet(df, ['提交状态'])
+            deadline_progress_col = self._find_column_in_sheet(df, ['截止前完成关卡'])
+            latest_progress_col = self._find_column_in_sheet(df, ['最新完成关卡'])
+            pass_time_col = self._find_column_in_sheet(df, ['通关时间'])
+            time_cost_col = self._find_column_in_sheet(df, ['本实训总耗时'])
+            last_submit_col = self._find_column_in_sheet(df, ['最后完成时间', '更新时间', '通关时间'])
+            challenge_columns = self._detect_challenge_columns(df)
             
-            if not student_no_col or not score_col:
-                self.warnings.append(f'Sheet {sheet_idx+1}: 找不到学号或成绩列，跳过')
+            if not student_no_col:
+                self.warnings.append(f'Sheet {sheet_order}: 找不到学号列，跳过')
                 continue
             
             for idx, row in df.iterrows():
@@ -462,44 +475,173 @@ class EducoderAssignmentImporter(EducoderImporter):
                 if not student_no:
                     continue
                 
-                score = safe_float(row.get(score_col), None)
-                if score is None:
-                    continue
-                
+                score = safe_float(row.get(score_col), None) if score_col else None
+                challenge_score = safe_float(row.get(challenge_score_col), None) if challenge_score_col else None
                 retry_count = safe_int(row.get(retry_col)) if retry_col else 0
                 
                 if student_no not in student_scores:
                     student_scores[student_no] = []
                     student_names[student_no] = clean_name(row.get(name_col)) if name_col else None
+                    student_high_retries[student_no] = 0
+                    student_details[student_no] = []
                 
-                student_scores[student_no].append(score)
-                # high_retry 只累加每sheet的（假设评测次数>5为高频重试）
-                if retry_count > 5 and student_no in student_scores:
-                    pass  # 下面汇总时计算
+                if score is not None:
+                    student_scores[student_no].append(score)
+                if retry_count > 5:
+                    student_high_retries[student_no] += 1
+
+                last_submit_time = self._parse_datetime(row.get(last_submit_col)) if last_submit_col else None
+                if last_submit_time:
+                    existing_time = student_last_submit_times.get(student_no)
+                    if existing_time is None or last_submit_time > existing_time:
+                        student_last_submit_times[student_no] = last_submit_time
+
+                challenges = self._extract_challenges(row, challenge_columns)
+                latest_progress = self._clean_optional_text(row.get(latest_progress_col)) if latest_progress_col else None
+                completed_count, total_count = self._count_challenges(challenges, latest_progress)
+                completion_rate = round(completed_count / total_count * 100, 2) if total_count else 0.0
+
+                student_details[student_no].append({
+                    'assignment_name': sheet_name,
+                    'sheet_order': sheet_order,
+                    'submit_status': self._clean_optional_text(row.get(status_col)) if status_col else '--',
+                    'deadline_progress': self._clean_optional_text(row.get(deadline_progress_col)) if deadline_progress_col else None,
+                    'latest_progress': latest_progress,
+                    'score': score,
+                    'challenge_score': challenge_score,
+                    'time_cost': self._clean_optional_text(row.get(time_cost_col)) if time_cost_col else '--',
+                    'retry_count': retry_count,
+                    'total_challenge_count': total_count,
+                    'completed_challenge_count': completed_count,
+                    'challenge_completion_rate': completion_rate,
+                    'pass_time': self._parse_datetime(row.get(pass_time_col)) if pass_time_col else None,
+                    'last_finish_time': last_submit_time,
+                    'challenges': challenges,
+                })
         
         # 汇总
         for student_no, scores in student_scores.items():
             name = student_names.get(student_no)
             avg_score = sum(scores) / len(scores) if scores else 0
-            total_score = sum(scores)
             
             self.parsed_data.append({
                 'student_no': student_no,
                 'name': name,
-                'total_score': total_score,
                 'avg_experiment_score': avg_score,
                 'assignment_count': len(scores),
-                'high_retry_count': 0,
-                'last_submit_time': None
+                'high_retry_count': student_high_retries.get(student_no, 0),
+                'last_submit_time': student_last_submit_times.get(student_no),
+                'assignments': student_details.get(student_no, [])
             })
         
         self.errors = errors
         return len(self.parsed_data) > 0, errors
 
+    @staticmethod
+    def _parse_datetime(value):
+        if value is None or pd.isna(value):
+            return None
+        try:
+            parsed = pd.to_datetime(value, errors='coerce')
+            if pd.isna(parsed):
+                return None
+            return parsed.to_pydatetime()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _clean_optional_text(value):
+        if value is None or pd.isna(value):
+            return None
+        text = str(value).strip()
+        if not text or text.lower() == 'nan':
+            return None
+        return text
+
+    @staticmethod
+    def _parse_progress(value) -> Tuple[Optional[int], Optional[int]]:
+        text = EducoderAssignmentImporter._clean_optional_text(value)
+        if not text:
+            return None, None
+        match = re.search(r'(\d+)\s*/\s*(\d+)', text)
+        if not match:
+            return None, None
+        return int(match.group(1)), int(match.group(2))
+
+    def _detect_challenge_columns(self, df: pd.DataFrame) -> List[Dict]:
+        """识别一个 sheet 中的第 N 关重复列组。"""
+        challenge_map = {}
+        pattern = re.compile(r'^第(\d+)关(.+)$')
+        for col in df.columns:
+            match = pattern.match(str(col).strip())
+            if not match:
+                continue
+            order = int(match.group(1))
+            field_name = match.group(2).strip()
+            challenge_map.setdefault(order, {})[field_name] = col
+
+        return [
+            {
+                'order': order,
+                'name_col': fields.get('关卡名称'),
+                'start_col': fields.get('开始时间'),
+                'finish_col': fields.get('完成时间'),
+                'status_col': fields.get('状态'),
+                'retry_col': fields.get('评测次数'),
+                'comment_col': fields.get('评语'),
+            }
+            for order, fields in sorted(challenge_map.items())
+        ]
+
+    def _extract_challenges(self, row, challenge_columns: List[Dict]) -> List[Dict]:
+        challenges = []
+        for info in challenge_columns:
+            name = self._clean_optional_text(row.get(info['name_col'])) if info.get('name_col') else None
+            status = self._clean_optional_text(row.get(info['status_col'])) if info.get('status_col') else None
+            start_time = self._parse_datetime(row.get(info['start_col'])) if info.get('start_col') else None
+            finish_time = self._parse_datetime(row.get(info['finish_col'])) if info.get('finish_col') else None
+            retry_count = safe_int(row.get(info['retry_col'])) if info.get('retry_col') else 0
+            comment = self._clean_optional_text(row.get(info['comment_col'])) if info.get('comment_col') else None
+
+            if not any([name, status, start_time, finish_time, retry_count, comment]):
+                continue
+
+            challenges.append({
+                'challenge_order': info['order'],
+                'challenge_name': name,
+                'status': status,
+                'start_time': start_time,
+                'finish_time': finish_time,
+                'retry_count': retry_count,
+                'comment': comment,
+            })
+        return challenges
+
+    @staticmethod
+    def _is_challenge_completed(challenge: Dict) -> bool:
+        status = challenge.get('status') or ''
+        if any(keyword in status for keyword in ['通过', '完成', '已完成']):
+            return True
+        return challenge.get('finish_time') is not None
+
+    def _count_challenges(self, challenges: List[Dict], latest_progress: Optional[str]) -> Tuple[int, int]:
+        total_count = len(challenges)
+        completed_count = len([item for item in challenges if self._is_challenge_completed(item)])
+
+        progress_completed, progress_total = self._parse_progress(latest_progress)
+        if progress_total is not None:
+            total_count = max(total_count, progress_total)
+        if progress_completed is not None:
+            completed_count = max(completed_count, progress_completed)
+
+        return completed_count, total_count
+
     def _save_to_db(self) -> int:
         success_count = 0
 
         class_id = self._get_or_create_class()
+        StudentAssignmentChallenge.query.filter_by(source_file=self.filename).delete(synchronize_session=False)
+        StudentAssignmentDetail.query.filter_by(source_file=self.filename).delete(synchronize_session=False)
 
         for data in self.parsed_data:
             try:
@@ -522,18 +664,55 @@ class EducoderAssignmentImporter(EducoderImporter):
                 if not practice:
                     practice = StudentPractice(student_id=student.id)
 
-                practice.total_score = data['total_score']
+                practice.activity_score = practice.activity_score or 0.0
+                practice.total_score = practice.total_score or 0.0
                 practice.avg_experiment_score = data['avg_experiment_score']
                 practice.assignment_count = data['assignment_count']
                 practice.high_retry_count = data['high_retry_count']
                 practice.last_submit_time = data['last_submit_time']
 
                 practice.practice_score = practice.calculate_practice_score()
-                practice.practice_level = StudentKnowledgeMastery.calculate_mastery_level(
-                    practice.practice_score
-                )
+                practice.practice_level = StudentPractice.calculate_practice_level(practice.practice_score)
 
                 db.session.add(practice)
+                for assignment in data.get('assignments', []):
+                    detail = StudentAssignmentDetail(
+                        student_id=student.id,
+                        assignment_name=assignment['assignment_name'],
+                        sheet_order=assignment['sheet_order'],
+                        submit_status=assignment['submit_status'],
+                        deadline_progress=assignment['deadline_progress'],
+                        latest_progress=assignment['latest_progress'],
+                        score=assignment['score'],
+                        challenge_score=assignment['challenge_score'],
+                        time_cost=assignment['time_cost'],
+                        retry_count=assignment['retry_count'],
+                        total_challenge_count=assignment['total_challenge_count'],
+                        completed_challenge_count=assignment['completed_challenge_count'],
+                        challenge_completion_rate=assignment['challenge_completion_rate'],
+                        pass_time=assignment['pass_time'],
+                        last_finish_time=assignment['last_finish_time'],
+                        source_file=self.filename
+                    )
+                    db.session.add(detail)
+                    db.session.flush()
+
+                    for challenge in assignment.get('challenges', []):
+                        db.session.add(StudentAssignmentChallenge(
+                            assignment_detail_id=detail.id,
+                            student_id=student.id,
+                            assignment_name=assignment['assignment_name'],
+                            sheet_order=assignment['sheet_order'],
+                            challenge_order=challenge['challenge_order'],
+                            challenge_name=challenge['challenge_name'],
+                            status=challenge['status'],
+                            start_time=challenge['start_time'],
+                            finish_time=challenge['finish_time'],
+                            retry_count=challenge['retry_count'],
+                            comment=challenge['comment'],
+                            source_file=self.filename
+                        ))
+
                 success_count += 1
 
             except Exception as e:

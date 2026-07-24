@@ -4,62 +4,48 @@
 
 {% block extra_css %}
 <style>
-    .metric-card {
-        padding: 12px 16px;
-        border-radius: 8px;
-        margin-bottom: 10px;
+    .detail-table th {
+        width: 160px;
         background: #f8f9fa;
-        border-left: 4px solid #007bff;
-    }
-    .metric-card .metric-value {
-        font-size: 22px;
-        font-weight: bold;
-    }
-    .metric-card .metric-label {
-        font-size: 13px;
-        color: #6c757d;
-    }
-    .metric-card.green { border-left-color: #28a745; }
-    .metric-card.red { border-left-color: #dc3545; }
-    .metric-card.orange { border-left-color: #fd7e14; }
-    .metric-card.blue { border-left-color: #007bff; }
-    .knowledge-bar {
-        display: flex;
-        align-items: center;
-        margin-bottom: 6px;
-    }
-    .knowledge-bar .bar-label {
-        width: 200px;
-        font-size: 13px;
-        text-align: right;
-        padding-right: 10px;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        color: #495057;
+        font-weight: 600;
         white-space: nowrap;
     }
-    .knowledge-bar .bar-track {
-        flex: 1;
-        height: 18px;
-        background: #e9ecef;
-        border-radius: 4px;
-        overflow: hidden;
+    .detail-table td {
+        word-break: break-word;
     }
-    .knowledge-bar .bar-fill {
-        height: 100%;
-        border-radius: 4px;
-        transition: width 0.5s ease;
+    .table-scroll {
+        max-height: 520px;
+        overflow: auto;
     }
-    .section-title {
-        font-size: 16px;
+    .table-scroll thead th {
+        position: sticky;
+        top: 0;
+        background: #fff;
+        z-index: 1;
+    }
+    .empty-row {
+        color: #6c757d;
+        text-align: center;
+    }
+    .long-cell {
+        min-width: 220px;
+    }
+    .summary-table th {
+        width: 180px;
+        background: #f8f9fa;
+        color: #495057;
         font-weight: 600;
-        margin-bottom: 16px;
-        padding-bottom: 8px;
-        border-bottom: 2px solid #007bff;
-        color: #333;
+        white-space: nowrap;
     }
-    .section-title i {
-        margin-right: 8px;
-        color: #007bff;
+    .challenge-row {
+        background: #fbfcfe;
+    }
+    .challenge-row table {
+        margin-bottom: 0;
+    }
+    .progress-cell {
+        min-width: 120px;
     }
 </style>
 {% endblock %}
@@ -84,236 +70,185 @@
 
 <section class="content">
     <div class="container-fluid">
-
-        <!-- ============ 第一区：基础信息 + 风险状态 + 理论vs实践 ============ -->
         <div class="row">
-            <div class="col-md-3">
+            <div class="col-12">
                 <div class="card card-primary">
                     <div class="card-header">
                         <h3 class="card-title"><i class="fas fa-user"></i> 基础信息</h3>
+                        <div class="card-tools">
+                            <a class="btn btn-tool" id="detail-link" href="#">
+                                <i class="fas fa-chart-line"></i> 返回画像
+                            </a>
+                        </div>
                     </div>
                     <div class="card-body p-0">
-                        <table class="table table-borderless mb-0">
-                            <tr><th width="70">学号</th><td id="stu-no">--</td></tr>
-                            <tr><th>姓名</th><td id="stu-name">--</td></tr>
-                            <tr><th>班级</th><td id="stu-class">--</td></tr>
-                            <tr><th>专业</th><td id="stu-major">--</td></tr>
+                        <table class="table table-bordered detail-table mb-0">
+                            <tbody id="basic-table">
+                                <tr><td class="empty-row" colspan="2">加载中...</td></tr>
+                            </tbody>
                         </table>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="card card-danger">
-                    <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-exclamation-triangle"></i> 风险状态</h3>
-                    </div>
-                    <div class="card-body text-center">
-                        <h1 id="warning-score" style="font-size: 48px;">--</h1>
-                        <span class="badge" id="warning-level" style="font-size: 16px;">--</span>
-                        <p class="text-muted mt-2" id="warning-reason" style="font-size: 13px;">--</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card card-info">
-                    <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-balance-scale"></i> 理论 vs 实践</h3>
-                    </div>
-                    <div class="card-body">
-                        <div id="theory-practice-chart" style="height: 180px;"></div>
-                        <p class="text-center mt-2 mb-0">
-                            <span class="badge" id="theory-practice-type" style="font-size: 14px;">--</span>
-                        </p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
                 <div class="card card-success">
                     <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-clipboard-check"></i> 总评概况</h3>
-                    </div>
-                    <div class="card-body text-center">
-                        <div class="row">
-                            <div class="col-6">
-                                <h3 id="overview-behavior" style="color: #007bff;">--</h3>
-                                <small class="text-muted">行为评分</small>
-                            </div>
-                            <div class="col-6">
-                                <h3 id="overview-practice" style="color: #28a745;">--</h3>
-                                <small class="text-muted">实践评分</small>
-                            </div>
-                        </div>
-                        <hr>
-                        <div class="row">
-                            <div class="col-6">
-                                <h4 id="overview-mastery" style="color: #fd7e14;">--</h4>
-                                <small class="text-muted">知识点掌握率</small>
-                            </div>
-                            <div class="col-6">
-                                <h4 id="overview-assign-count" style="color: #6c757d;">--</h4>
-                                <small class="text-muted">完成作业数</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ============ 第二区：学习行为 + 实践能力指标 ============ -->
-        <div class="row">
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-chart-bar"></i> 雨课堂 - 学习行为</h3>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-6">
-                                <div class="metric-card blue">
-                                    <div class="metric-label">到课率</div>
-                                    <div class="metric-value" id="met-attend">--%</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="metric-card blue">
-                                    <div class="metric-label">视频完成率</div>
-                                    <div class="metric-value" id="met-video">--%</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="metric-card green">
-                                    <div class="metric-label">作业提交率</div>
-                                    <div class="metric-value" id="met-submit">--%</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="metric-card orange">
-                                    <div class="metric-label">作业得分率</div>
-                                    <div class="metric-value" id="met-score-rate">--%</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="metric-card blue">
-                                    <div class="metric-label">PPT查看率</div>
-                                    <div class="metric-value" id="met-ppt">--%</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="metric-card green">
-                                    <div class="metric-label">讨论参与</div>
-                                    <div class="metric-value" id="met-discuss">--</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div id="radar-chart" style="height: 320px; margin-top: 10px;"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-code"></i> 头歌 - 实践能力</h3>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-6">
-                                <div class="metric-card green">
-                                    <div class="metric-label">实验总成绩</div>
-                                    <div class="metric-value" id="met-total-score">--</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="metric-card blue">
-                                    <div class="metric-label">活跃度</div>
-                                    <div class="metric-value" id="met-activity">--</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="metric-card orange">
-                                    <div class="metric-label">平均实验分</div>
-                                    <div class="metric-value" id="met-avg-exp">--</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="metric-card red">
-                                    <div class="metric-label">高频重试次数</div>
-                                    <div class="metric-value" id="met-retry">--</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="metric-card blue">
-                                    <div class="metric-label">完成作业数</div>
-                                    <div class="metric-value" id="met-assign-count">--</div>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="metric-card green">
-                                    <div class="metric-label">实践综合评分</div>
-                                    <div class="metric-value" id="met-practice-score">--</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ============ 第三区：知识点掌握度 ============ -->
-        <div class="row">
-            <div class="col-md-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-brain"></i> 知识点掌握度</h3>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-8">
-                                <h6 class="text-muted">薄弱知识点 Top 10（掌握率 &lt; 60%）</h6>
-                                <div id="knowledge-chart" style="height: 350px;"></div>
-                            </div>
-                            <div class="col-md-4">
-                                <h6 class="text-muted">掌握度分布</h6>
-                                <div id="mastery-pie-chart" style="height: 350px;"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ============ 第四区：作业明细表 ============ -->
-        <div class="row">
-            <div class="col-md-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-tasks"></i> 实验/作业明细（头歌）</h3>
-                        <div class="card-tools">
-                            <span class="badge badge-info" id="assign-count-badge">0 项</span>
-                        </div>
+                        <h3 class="card-title"><i class="fas fa-brain"></i> 学生知识点汇总</h3>
                     </div>
                     <div class="card-body p-0">
-                        <div style="max-height: 500px; overflow-y: auto;">
-                            <table class="table table-striped table-hover mb-0">
-                                <thead style="position: sticky; top: 0; background: #fff; z-index: 1;">
-                                    <tr>
-                                        <th>#</th>
-                                        <th>实验名称</th>
-                                        <th>提交状态</th>
-                                        <th>最终成绩</th>
-                                        <th>耗时</th>
-                                        <th>评测次数</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="assignment-table">
-                                    <tr><td colspan="6" class="text-center text-muted">加载中...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
+                        <table class="table table-bordered summary-table mb-0">
+                            <tbody id="knowledge-summary-table">
+                                <tr><td class="empty-row" colspan="2">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card card-info">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-layer-group"></i> 头歌作业汇总</h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-bordered summary-table mb-0">
+                            <tbody id="assignment-summary-table">
+                                <tr><td class="empty-row" colspan="2">加载中...</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </div>
 
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-chalkboard-teacher"></i> 雨课堂学习行为明细</h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-bordered detail-table mb-0">
+                            <tbody id="behavior-table">
+                                <tr><td class="empty-row" colspan="2">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-code"></i> 头歌实践数据明细</h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <table class="table table-bordered detail-table mb-0">
+                            <tbody id="practice-table">
+                                <tr><td class="empty-row" colspan="2">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-brain"></i> 知识点掌握明细</h3>
+                    </div>
+                    <div class="card-body p-0 table-scroll">
+                        <table class="table table-striped table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>章节号</th>
+                                    <th class="long-cell">知识点</th>
+                                    <th>掌握率</th>
+                                    <th>完成率</th>
+                                    <th>正确率</th>
+                                    <th>掌握等级</th>
+                                    <th>数据来源</th>
+                                    <th>更新时间</th>
+                                </tr>
+                            </thead>
+                            <tbody id="knowledge-table">
+                                <tr><td class="empty-row" colspan="9">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-tasks"></i> 头歌作业明细</h3>
+                        <div class="card-tools">
+                            <button class="btn btn-tool" id="toggle-all-challenges" type="button">
+                                <i class="fas fa-list"></i> 展开关卡
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-0 table-scroll">
+                        <table class="table table-striped table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th class="long-cell">实验名称</th>
+                                    <th>提交状态</th>
+                                    <th class="progress-cell">关卡进度</th>
+                                    <th>完成率</th>
+                                    <th>最终成绩</th>
+                                    <th>关卡得分</th>
+                                    <th>耗时</th>
+                                    <th>评测次数</th>
+                                    <th>通关时间</th>
+                                    <th>关卡</th>
+                                </tr>
+                            </thead>
+                            <tbody id="assignment-table">
+                                <tr><td class="empty-row" colspan="11">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-exclamation-triangle"></i> 预警记录明细</h3>
+                    </div>
+                    <div class="card-body p-0 table-scroll">
+                        <table class="table table-striped table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>预警类型</th>
+                                    <th>预警等级</th>
+                                    <th>风险指数</th>
+                                    <th class="long-cell">预警原因</th>
+                                    <th>生成时间</th>
+                                </tr>
+                            </thead>
+                            <tbody id="warning-table">
+                                <tr><td class="empty-row" colspan="6">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </section>
 {% endblock %}
@@ -323,242 +258,279 @@
 $(function() {
     var studentId = '{{ student_id }}';
 
+    $('#breadcrumb-detail, #detail-link').attr('href', '/student/' + studentId);
     loadAllData();
+
+    $(document).on('click', '.toggle-challenges', function() {
+        var target = $(this).data('target');
+        $('#' + target).toggleClass('d-none');
+        var expanded = !$('#' + target).hasClass('d-none');
+        $(this).text(expanded ? '收起' : '查看');
+    });
+
+    $('#toggle-all-challenges').on('click', function() {
+        var rows = $('.challenge-row');
+        var shouldExpand = rows.filter('.d-none').length > 0;
+        rows.toggleClass('d-none', !shouldExpand);
+        $('.toggle-challenges').not(':disabled').text(shouldExpand ? '收起' : '查看');
+        $(this).html('<i class="fas fa-list"></i> ' + (shouldExpand ? '收起关卡' : '展开关卡'));
+    });
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function display(value) {
+        if (value === null || value === undefined || value === '') {
+            return '--';
+        }
+        return value;
+    }
+
+    function formatNumber(value, suffix) {
+        if (value === null || value === undefined || value === '') {
+            return '--';
+        }
+        var n = Number(value);
+        if (Number.isNaN(n)) {
+            return value;
+        }
+        return n.toFixed(1) + (suffix || '');
+    }
+
+    function renderKeyValue(selector, rows) {
+        var html = '';
+        rows.forEach(function(row) {
+            html += '<tr><th>' + escapeHtml(row[0]) + '</th><td>' + escapeHtml(display(row[1])) + '</td></tr>';
+        });
+        $(selector).html(html);
+    }
+
+    function renderEmpty(selector, colspan, text) {
+        $(selector).html('<tr><td class="empty-row" colspan="' + colspan + '">' + escapeHtml(text) + '</td></tr>');
+    }
 
     function loadAllData() {
         $.get('/api/student/' + studentId + '/overview', function(data) {
             renderBasicInfo(data.basic);
-            renderWarning(data.warning);
-            renderBehaviorMetrics(data.behavior);
-            renderPracticeMetrics(data.practice);
-            renderTheoryPracticeChart(data.theory_practice);
-            renderRadarChart(data.behavior);
+            renderKnowledgeSummary(data.knowledge);
+            renderAssignmentSummary(data.assignment_summary || {});
+            renderBehavior(data.behavior);
+            renderPractice(data.practice);
             renderKnowledge(data.knowledge);
-            renderAssignments(data.assignments);
-            renderOverviewSummary(data);
-
-            $('#breadcrumb-detail').attr('href', '/student/' + studentId);
+            renderAssignments(data.assignments || []);
+            renderWarnings(data.warnings || []);
         }).fail(function() {
             alert('加载学生数据失败，请检查学生是否存在');
         });
     }
 
-    // ===== 基础信息 =====
     function renderBasicInfo(basic) {
-        $('#stu-no').text(basic.student_no);
-        $('#stu-name').text(basic.name);
-        $('#stu-class').text(basic.class_name || '--');
-        $('#stu-major').text(basic.major || '--');
+        renderKeyValue('#basic-table', [
+            ['学号', basic.student_no],
+            ['姓名', basic.name],
+            ['班级', basic.class_name],
+            ['专业', basic.major],
+            ['创建时间', basic.created_at],
+            ['更新时间', basic.updated_at]
+        ]);
     }
 
-    // ===== 风险状态 =====
-    function renderWarning(warning) {
-        if (warning) {
-            $('#warning-score').text(warning.warning_score.toFixed(1));
-            var levelClass = warning.warning_level >= 3 ? 'badge-danger' :
-                             warning.warning_level >= 2 ? 'badge-warning' :
-                             warning.warning_level >= 1 ? 'badge-info' : 'badge-success';
-            $('#warning-level').attr('class', 'badge ' + levelClass)
-                .text(warning.warning_level_name).css('font-size', '16px');
-            $('#warning-reason').text(warning.warning_reason || '暂无风险');
-        } else {
-            $('#warning-score').text('0');
-            $('#warning-level').attr('class', 'badge badge-success').text('正常').css('font-size', '16px');
-            $('#warning-reason').text('暂无风险');
-        }
-    }
-
-    // ===== 行为指标 =====
-    function renderBehaviorMetrics(b) {
-        if (b) {
-            $('#met-attend').text(b.attendance_rate.toFixed(1) + '%');
-            $('#met-video').text(b.video_finish_rate.toFixed(1) + '%');
-            $('#met-submit').text(b.exercise_submit_rate.toFixed(1) + '%');
-            $('#met-score-rate').text(b.exercise_score_rate.toFixed(1) + '%');
-            $('#met-ppt').text(b.ppt_view_rate.toFixed(1) + '%');
-            $('#met-discuss').text((b.discussion_count || 0) + '帖/' + (b.reply_count || 0) + '回');
-        } else {
-            $('.metric-card .metric-value').text('--');
-        }
-    }
-
-    // ===== 实践指标 =====
-    function renderPracticeMetrics(p) {
-        if (p) {
-            $('#met-total-score').text(p.total_score.toFixed(1));
-            $('#met-activity').text(p.activity_score.toFixed(1));
-            $('#met-avg-exp').text(p.avg_experiment_score.toFixed(1));
-            $('#met-retry').text(p.high_retry_count || 0);
-            $('#met-assign-count').text(p.assignment_count);
-            $('#met-practice-score').text(p.practice_score.toFixed(1));
-        } else {
-            $('#met-total-score,#met-activity,#met-avg-exp,#met-retry,#met-assign-count,#met-practice-score').text('--');
-        }
-    }
-
-    // ===== 总评概况 =====
-    function renderOverviewSummary(data) {
-        $('#overview-behavior').text(data.behavior ? data.behavior.behavior_score.toFixed(1) : '--');
-        $('#overview-practice').text(data.practice ? data.practice.practice_score.toFixed(1) : '--');
-        $('#overview-mastery').text(data.knowledge.overall_mastery_rate != null ? data.knowledge.overall_mastery_rate.toFixed(1) + '%' : '--');
-        $('#overview-assign-count').text(data.assignments.length);
-    }
-
-    // ===== 理论vs实践柱状图 =====
-    function renderTheoryPracticeChart(tp) {
-        var chart = echarts.init(document.getElementById('theory-practice-chart'));
-        chart.setOption({
-            tooltip: {},
-            xAxis: { type: 'category', data: ['理论', '实践'] },
-            yAxis: { type: 'value', max: 100 },
-            series: [{
-                type: 'bar',
-                data: [
-                    { value: tp.theory_score, itemStyle: { color: '#007bff' } },
-                    { value: tp.practice_score, itemStyle: { color: '#28a745' } }
-                ],
-                label: { show: true, position: 'top' },
-                barWidth: '40%'
-            }]
-        });
-        var typeClass = tp.type === '双强' ? 'badge-success' :
-                        tp.type === '双弱' ? 'badge-danger' :
-                        tp.type === '理论强实践弱' ? 'badge-warning' : 'badge-info';
-        $('#theory-practice-type').attr('class', 'badge ' + typeClass).text(tp.type).css('font-size', '14px');
-        $(window).resize(function() { chart.resize(); });
-    }
-
-    // ===== 雷达图 =====
-    function renderRadarChart(behavior) {
-        var chart = echarts.init(document.getElementById('radar-chart'));
+    function renderBehavior(behavior) {
         if (!behavior) {
-            chart.setOption({ title: { text: '暂无行为数据', left: 'center', top: 'center' } });
+            renderEmpty('#behavior-table', 2, '暂无雨课堂学习行为数据');
             return;
         }
-        chart.setOption({
-            tooltip: {},
-            radar: {
-                indicator: [
-                    { name: '到课率', max: 100 },
-                    { name: '视频完成率', max: 100 },
-                    { name: '作业提交率', max: 100 },
-                    { name: '作业得分率', max: 100 },
-                    { name: 'PPT查看率', max: 100 }
-                ],
-                shape: 'polygon',
-                radius: '65%'
-            },
-            series: [{
-                type: 'radar',
-                data: [{
-                    value: [
-                        behavior.attendance_rate,
-                        behavior.video_finish_rate,
-                        behavior.exercise_submit_rate,
-                        behavior.exercise_score_rate,
-                        behavior.ppt_view_rate
-                    ],
-                    name: '学习行为',
-                    areaStyle: { color: 'rgba(0, 123, 255, 0.2)' },
-                    lineStyle: { color: '#007bff' },
-                    itemStyle: { color: '#007bff' }
-                }]
-            }]
-        });
-        $(window).resize(function() { chart.resize(); });
+
+        renderKeyValue('#behavior-table', [
+            ['到课率', formatNumber(behavior.attendance_rate, '%')],
+            ['PPT查看率', formatNumber(behavior.ppt_view_rate, '%')],
+            ['视频完成率', formatNumber(behavior.video_finish_rate, '%')],
+            ['作业提交率', formatNumber(behavior.exercise_submit_rate, '%')],
+            ['作业得分率', formatNumber(behavior.exercise_score_rate, '%')],
+            ['讨论次数', behavior.discussion_count],
+            ['回复次数', behavior.reply_count],
+            ['行为综合评分', formatNumber(behavior.behavior_score)],
+            ['更新时间', behavior.updated_at]
+        ]);
     }
 
-    // ===== 知识点分析 =====
+    function renderPractice(practice) {
+        if (!practice) {
+            renderEmpty('#practice-table', 2, '暂无头歌实践数据');
+            return;
+        }
+
+        renderKeyValue('#practice-table', [
+            ['实验总成绩', formatNumber(practice.total_score)],
+            ['活跃度原始分', formatNumber(practice.activity_score)],
+            ['活跃度归一分', formatNumber(practice.activity_score_normalized)],
+            ['完成作业数', practice.assignment_count],
+            ['平均实验分数', formatNumber(practice.avg_experiment_score)],
+            ['高频重试次数', practice.high_retry_count],
+            ['实践综合评分', formatNumber(practice.practice_score)],
+            ['最后提交时间', practice.last_submit_time],
+            ['更新时间', practice.updated_at]
+        ]);
+    }
+
+    function renderKnowledgeSummary(knowledge) {
+        if (!knowledge) {
+            renderEmpty('#knowledge-summary-table', 2, '暂无知识点汇总数据');
+            return;
+        }
+
+        var stats = knowledge.stats || {};
+        var summary = knowledge.summary || {};
+        renderKeyValue('#knowledge-summary-table', [
+            ['整体掌握率', formatNumber(knowledge.overall_mastery_rate, '%')],
+            ['整体完成率', formatNumber(knowledge.overall_completion_rate, '%')],
+            ['自测正确率', formatNumber(knowledge.overall_correct_rate, '%')],
+            ['知识点数量', stats.total_points],
+            ['薄弱知识点数量', stats.weak_point_count],
+            ['明细平均掌握率', formatNumber(stats.avg_mastery_rate, '%')],
+            ['明细平均完成率', formatNumber(stats.avg_completion_rate, '%')],
+            ['明细平均正确率', formatNumber(stats.avg_correct_rate, '%')],
+            ['汇总数据来源', summary.source],
+            ['更新时间', summary.updated_at]
+        ]);
+    }
+
+    function renderAssignmentSummary(summary) {
+        renderKeyValue('#assignment-summary-table', [
+            ['作业记录数', summary.assignment_total],
+            ['已通关作业数', summary.assignment_completed_count],
+            ['作业完成率', formatNumber(summary.assignment_completion_rate, '%')],
+            ['有成绩作业数', summary.assignment_scored_count],
+            ['平均作业成绩', formatNumber(summary.avg_score)],
+            ['高频重试作业数', summary.high_retry_assignment_count],
+            ['关卡总数', summary.total_challenge_count],
+            ['已完成关卡数', summary.completed_challenge_count],
+            ['关卡完成率', formatNumber(summary.challenge_completion_rate, '%')]
+        ]);
+    }
+
     function renderKnowledge(knowledge) {
-        // 薄弱知识点 Top 10 横向柱状图
-        var chart = echarts.init(document.getElementById('knowledge-chart'));
-        var weakPoints = knowledge.weak_points.slice(0, 10);
+        var points = (knowledge && knowledge.all_points ? knowledge.all_points : [])
+            .filter(function(point) { return point.knowledge_name !== '__汇总__'; });
 
-        if (weakPoints.length === 0) {
-            chart.setOption({ title: { text: '无薄弱知识点（均≥60%）', left: 'center', top: 'center' } });
-        } else {
-            chart.setOption({
-                tooltip: { trigger: 'axis' },
-                xAxis: { type: 'value', max: 100 },
-                yAxis: {
-                    type: 'category',
-                    data: weakPoints.map(function(p) { return p.knowledge_name; }).reverse(),
-                    axisLabel: { fontSize: 11 }
-                },
-                series: [{
-                    type: 'bar',
-                    data: weakPoints.map(function(p) {
-                        var color = p.mastery_rate < 40 ? '#dc3545' : '#fd7e14';
-                        return { value: p.mastery_rate, itemStyle: { color: color } };
-                    }).reverse(),
-                    label: { show: true, position: 'right', formatter: '{c}%' }
-                }]
-            });
+        if (points.length === 0) {
+            renderEmpty('#knowledge-table', 9, '暂无知识点掌握明细');
+            return;
         }
-        $(window).resize(function() { chart.resize(); });
 
-        // 掌握度分布饼图
-        var pieChart = echarts.init(document.getElementById('mastery-pie-chart'));
-        var allPoints = knowledge.all_points.filter(function(p) { return p.knowledge_name !== '__汇总__'; });
-        var dist = { '精通': 0, '熟练': 0, '入门': 0, '未掌握': 0 };
-        allPoints.forEach(function(p) {
-            if (p.mastery_level >= 3) dist['精通']++;
-            else if (p.mastery_level >= 2) dist['熟练']++;
-            else if (p.mastery_level >= 1) dist['入门']++;
-            else dist['未掌握']++;
+        var html = '';
+        points.forEach(function(point, index) {
+            html += '<tr>' +
+                '<td>' + (index + 1) + '</td>' +
+                '<td>' + escapeHtml(display(point.chapter_no)) + '</td>' +
+                '<td class="long-cell">' + escapeHtml(point.knowledge_name) + '</td>' +
+                '<td>' + escapeHtml(formatNumber(point.mastery_rate, '%')) + '</td>' +
+                '<td>' + escapeHtml(formatNumber(point.completion_rate, '%')) + '</td>' +
+                '<td>' + escapeHtml(formatNumber(point.correct_rate, '%')) + '</td>' +
+                '<td>' + escapeHtml(display(point.mastery_level_name)) + '</td>' +
+                '<td>' + escapeHtml(display(point.source)) + '</td>' +
+                '<td>' + escapeHtml(display(point.updated_at)) + '</td>' +
+                '</tr>';
         });
-
-        if (allPoints.length === 0) {
-            pieChart.setOption({ title: { text: '暂无知识点数据', left: 'center', top: 'center' } });
-        } else {
-            pieChart.setOption({
-                tooltip: { trigger: 'item', formatter: '{b}: {c}个 ({d}%)' },
-                series: [{
-                    type: 'pie',
-                    radius: ['40%', '70%'],
-                    label: { formatter: '{b}\n{c}个' },
-                    data: [
-                        { value: dist['精通'], name: '精通(≥80%)', itemStyle: { color: '#28a745' } },
-                        { value: dist['熟练'], name: '熟练(60-80%)', itemStyle: { color: '#17a2b8' } },
-                        { value: dist['入门'], name: '入门(40-60%)', itemStyle: { color: '#fd7e14' } },
-                        { value: dist['未掌握'], name: '未掌握(<40%)', itemStyle: { color: '#dc3545' } }
-                    ]
-                }]
-            });
-        }
-        $(window).resize(function() { pieChart.resize(); });
+        $('#knowledge-table').html(html);
     }
 
-    // ===== 作业明细表 =====
     function renderAssignments(assignments) {
-        var html = '';
         if (assignments.length === 0) {
-            html = '<tr><td colspan="6" class="text-center text-muted">暂无作业明细数据</td></tr>';
-        } else {
-            assignments.forEach(function(a, i) {
-                var statusBadge = 'badge-secondary';
-                if (a.status && a.status.indexOf('按时') >= 0) statusBadge = 'badge-success';
-                else if (a.status && a.status.indexOf('补交') >= 0) statusBadge = 'badge-warning';
-                else if (a.status && a.status.indexOf('未') >= 0) statusBadge = 'badge-danger';
-
-                var scoreColor = '';
-                if (a.score !== null && a.score < 60) scoreColor = 'text-danger font-weight-bold';
-                else if (a.score !== null && a.score >= 90) scoreColor = 'text-success font-weight-bold';
-
-                var scoreText = a.score != null ? a.score.toFixed(1) : '--';
-
-                html += '<tr>' +
-                    '<td>' + (i + 1) + '</td>' +
-                    '<td>' + a.name + '</td>' +
-                    '<td><span class="badge ' + statusBadge + '">' + (a.status || '--') + '</span></td>' +
-                    '<td class="' + scoreColor + '">' + scoreText + '</td>' +
-                    '<td>' + (a.time_cost || '--') + '</td>' +
-                    '<td>' + (a.retry_count || 0) + '</td>' +
-                    '</tr>';
-            });
+            renderEmpty('#assignment-table', 11, '暂无头歌作业明细');
+            return;
         }
+
+        var html = '';
+        assignments.forEach(function(item, index) {
+            var rowId = 'assignment-challenges-' + index;
+            var challenges = item.challenges || [];
+            var progressText = formatChallengeProgress(item);
+            html += '<tr>' +
+                '<td>' + (index + 1) + '</td>' +
+                '<td class="long-cell">' + escapeHtml(display(item.name)) + '</td>' +
+                '<td>' + escapeHtml(display(item.status)) + '</td>' +
+                '<td>' + escapeHtml(progressText) + '</td>' +
+                '<td>' + escapeHtml(formatNumber(item.challenge_completion_rate, '%')) + '</td>' +
+                '<td>' + escapeHtml(item.score == null ? '--' : formatNumber(item.score)) + '</td>' +
+                '<td>' + escapeHtml(item.challenge_score == null ? '--' : formatNumber(item.challenge_score)) + '</td>' +
+                '<td>' + escapeHtml(display(item.time_cost)) + '</td>' +
+                '<td>' + escapeHtml(display(item.retry_count)) + '</td>' +
+                '<td>' + escapeHtml(display(item.pass_time || item.last_finish_time)) + '</td>' +
+                '<td><button class="btn btn-sm btn-outline-primary toggle-challenges" type="button" data-target="' + rowId + '"' +
+                    (challenges.length === 0 ? ' disabled' : '') + '>查看</button></td>' +
+                '</tr>' +
+                '<tr id="' + rowId + '" class="challenge-row d-none"><td colspan="11">' +
+                    renderChallengeTable(challenges) +
+                '</td></tr>';
+        });
         $('#assignment-table').html(html);
-        $('#assign-count-badge').text(assignments.length + ' 项');
+    }
+
+    function formatChallengeProgress(item) {
+        var completed = item.completed_challenge_count;
+        var total = item.total_challenge_count;
+        if (completed != null && total) {
+            return completed + '/' + total;
+        }
+        return item.latest_progress || item.deadline_progress || '--';
+    }
+
+    function renderChallengeTable(challenges) {
+        if (!challenges || challenges.length === 0) {
+            return '<div class="text-muted">暂无关卡明细</div>';
+        }
+
+        var html = '<table class="table table-sm table-bordered">' +
+            '<thead><tr>' +
+            '<th>#</th><th>关卡名称</th><th>状态</th><th>开始时间</th><th>完成时间</th><th>评测次数</th><th>评语</th>' +
+            '</tr></thead><tbody>';
+
+        challenges.forEach(function(challenge) {
+            var statusClass = (challenge.status || '').indexOf('通过') >= 0 ? 'badge-success' :
+                              (challenge.status || '').indexOf('未') >= 0 ? 'badge-secondary' : 'badge-info';
+            html += '<tr>' +
+                '<td>' + escapeHtml(display(challenge.challenge_order)) + '</td>' +
+                '<td class="long-cell">' + escapeHtml(display(challenge.challenge_name)) + '</td>' +
+                '<td><span class="badge ' + statusClass + '">' + escapeHtml(display(challenge.status)) + '</span></td>' +
+                '<td>' + escapeHtml(display(challenge.start_time)) + '</td>' +
+                '<td>' + escapeHtml(display(challenge.finish_time)) + '</td>' +
+                '<td>' + escapeHtml(display(challenge.retry_count)) + '</td>' +
+                '<td>' + escapeHtml(display(challenge.comment)) + '</td>' +
+                '</tr>';
+        });
+
+        html += '</tbody></table>';
+        return html;
+    }
+
+    function renderWarnings(warnings) {
+        if (warnings.length === 0) {
+            renderEmpty('#warning-table', 6, '暂无预警记录');
+            return;
+        }
+
+        var html = '';
+        warnings.forEach(function(item, index) {
+            var levelClass = item.warning_level >= 3 ? 'badge-danger' :
+                             item.warning_level >= 2 ? 'badge-warning' :
+                             item.warning_level >= 1 ? 'badge-info' : 'badge-success';
+            html += '<tr>' +
+                '<td>' + (index + 1) + '</td>' +
+                '<td>' + escapeHtml(display(item.warning_type)) + '</td>' +
+                '<td><span class="badge ' + levelClass + '">' + escapeHtml(display(item.warning_level_name)) + '</span></td>' +
+                '<td>' + escapeHtml(formatNumber(item.warning_score)) + '</td>' +
+                '<td class="long-cell">' + escapeHtml(display(item.warning_reason)) + '</td>' +
+                '<td>' + escapeHtml(display(item.created_at)) + '</td>' +
+                '</tr>';
+        });
+        $('#warning-table').html(html);
     }
 });
 </script>

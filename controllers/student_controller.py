@@ -142,33 +142,7 @@ def get_theory_practice_comparison(student_id):
     if not student:
         return jsonify({'error': '学生不存在'}), 404
     
-    theory_score = 0
-    practice_score = 0
-    
-    if student.behavior:
-        theory_score = student.behavior.behavior_score
-    
-    if student.practice:
-        practice_score = student.practice.practice_score
-    
-    diff = theory_score - practice_score
-    
-    # 判断类型
-    if theory_score >= 60 and practice_score >= 60:
-        type_name = '双强'
-    elif theory_score < 60 and practice_score < 60:
-        type_name = '双弱'
-    elif theory_score >= practice_score:
-        type_name = '理论强实践弱'
-    else:
-        type_name = '理论弱实践强'
-    
-    return jsonify({
-        'theory_score': round(theory_score, 2),
-        'practice_score': round(practice_score, 2),
-        'diff': round(diff, 2),
-        'type': type_name
-    })
+    return jsonify(StudentRepository.get_theory_practice(student_id))
 
 
 @student_bp.route('/api/student/<int:student_id>/class-comparison')

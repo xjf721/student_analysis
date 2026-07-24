@@ -4,7 +4,7 @@
 """
 from typing import List, Optional, Dict
 from sqlalchemy import func, desc
-from models import db, Student, StudentKnowledgeMastery
+from models import db, Student, StudentKnowledgeMastery, KnowledgePointSummary
 
 
 class KnowledgeRepository:
@@ -64,6 +64,23 @@ class KnowledgeRepository:
             'min_rate': round(r[3] or 0, 2),
             'max_rate': round(r[4] or 0, 2)
         } for r in results]
+
+    @staticmethod
+    def get_point_summary_statistics(limit: Optional[int] = None) -> List[Dict]:
+        """
+        获取雨课堂按知识点汇总数据。
+
+        该数据来自知识点维度导出，不与学生明细平均值混合。
+        """
+        query = KnowledgePointSummary.query.order_by(
+            KnowledgePointSummary.mastery_rate.asc(),
+            KnowledgePointSummary.content_completion_rate.desc()
+        )
+
+        if limit:
+            query = query.limit(limit)
+
+        return [item.to_dict() for item in query.all()]
     
     @staticmethod
     def get_weak_knowledge_points(threshold: float = 40.0) -> List[str]:
@@ -116,7 +133,10 @@ class KnowledgeRepository:
             'student_no': s.student_no,
             'name': s.name,
             'mastery_rate': m.mastery_rate,
-            'mastery_level': m.mastery_level
+            'completion_rate': m.completion_rate,
+            'correct_rate': m.correct_rate,
+            'mastery_level': m.mastery_level,
+            'mastery_level_name': StudentKnowledgeMastery.get_level_name(m.mastery_level)
         } for s, m in results]
     
     @staticmethod

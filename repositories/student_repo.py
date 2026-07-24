@@ -2,64 +2,87 @@
 """
 学生数据访问层
 """
+import re
 from typing import List, Optional, Dict
-import pandas as pd
 from sqlalchemy import func
-from models import db, Student, ClassInfo, StudentKnowledgeMastery
-from config import BASE_DIR, EDUCODER_ASSIGNMENT_FILE
+from models import (
+    db,
+    Student,
+    StudentKnowledgeMastery,
+    WarningRecord,
+    StudentAssignmentDetail,
+    StudentAssignmentChallenge,
+)
 
 
-def _read_educoder_assignment_details(student_no: str) -> List[Dict]:
-    """
-    从头歌作业成绩表Excel文件中读取某个学生的所有作业明细
-    
-    Args:
-        student_no: 学号
-        
-    Returns:
-        作业明细列表
-    """
-    file_path = BASE_DIR / EDUCODER_ASSIGNMENT_FILE
-    if not file_path.exists():
+def _knowledge_chapter_no(knowledge_name: str) -> str:
+    """提取知识点开头的章节号，如 4.7.2。"""
+    match = re.match(r'^\s*(\d+(?:\.\d+)*)', knowledge_name or '')
+    return match.group(1) if match else ''
+
+
+def _knowledge_sort_key(point: Dict):
+    """按章节号自然排序，未带章节号的知识点放在最后。"""
+    chapter_no = point.get('chapter_no') or _knowledge_chapter_no(point.get('knowledge_name', ''))
+    if not chapter_no:
+        return (1, (), point.get('knowledge_name') or '')
+    parts = tuple(int(part) for part in chapter_no.split('.') if part.isdigit())
+    return (0, parts, point.get('knowledge_name') or '')
+
+
+def _read_educoder_assignment_details(student_id: int) -> List[Dict]:
+    """从数据库读取某个学生的头歌作业明细。"""
+    details = StudentAssignmentDetail.query.filter_by(
+        student_id=student_id
+    ).order_by(
+        StudentAssignmentDetail.sheet_order.asc()
+    ).all()
+
+    if not details:
         return []
-    
-    try:
-        xls = pd.ExcelFile(file_path)
-        assignments = []
-        
-        for sheet_name in xls.sheet_names:
-            try:
-                df = pd.read_excel(file_path, sheet_name=sheet_name)
-                if '学号' not in df.columns:
-                    continue
-                
-                # 灵活匹配学号
-                df['学号_str'] = df['学号'].astype(str).str.strip()
-                row = df[df['学号_str'] == str(student_no).strip()]
-                
-                if row.empty:
-                    # 尝试去前导零
-                    stripped = str(student_no).lstrip('0') or '0'
-                    row = df[df['学号_str'] == stripped]
-                
-                if row.empty:
-                    continue
-                
-                r = row.iloc[0]
-                assignment = {
-                    'name': sheet_name,
-                    'status': str(r.get('提交状态', '--')),
-                    'score': float(r['最终成绩']) if pd.notna(r.get('最终成绩')) else None,
-                    'time_cost': str(r.get('本实训总耗时', '--')),
-                    'retry_count': int(r['总评测次数']) if pd.notna(r.get('总评测次数')) else 0,
-                }
-                assignments.append(assignment)
-            except Exception:
-                continue
-        
-        return assignments
-    except Exception:
-        return []
+
+    detail_ids = [item.id for item in details]
+    challenge_rows = StudentAssignmentChallenge.query.filter(
+        StudentAssignmentChallenge.assignment_detail_id.in_(detail_ids)
+    ).order_by(
+        StudentAssignmentChallenge.sheet_order.asc(),
+        StudentAssignmentChallenge.challenge_order.asc()
+    ).all()
+
+    challenges_by_detail = {}
+    for challenge in challenge_rows:
+        challenges_by_detail.setdefault(challenge.assignment_detail_id, []).append(challenge.to_dict())
+
+    assignments = []
+    for item in details:
+        assignment = item.to_dict()
+        assignment['challenges'] = challenges_by_detail.get(item.id, [])
+        assignments.append(assignment)
+
+    return assignments
+
+
+def _summarize_assignments(assignments: List[Dict]) -> Dict:
+    scored = [item for item in assignments if item.get('score') is not None]
+    total_challenges = sum(item.get('total_challenge_count') or 0 for item in assignments)
+    completed_challenges = sum(item.get('completed_challenge_count') or 0 for item in assignments)
+    completed_assignments = len([
+        item for item in assignments
+        if (item.get('total_challenge_count') or 0) > 0
+        and (item.get('completed_challenge_count') or 0) >= (item.get('total_challenge_count') or 0)
+    ])
+
+    return {
+        'assignment_total': len(assignments),
+        'assignment_scored_count': len(scored),
+        'assignment_completed_count': completed_assignments,
+        'assignment_completion_rate': round(completed_assignments / len(assignments) * 100, 2) if assignments else None,
+        'avg_score': round(sum(item['score'] for item in scored) / len(scored), 2) if scored else None,
+        'high_retry_assignment_count': len([item for item in assignments if (item.get('retry_count') or 0) > 5]),
+        'total_challenge_count': total_challenges,
+        'completed_challenge_count': completed_challenges,
+        'challenge_completion_rate': round(completed_challenges / total_challenges * 100, 2) if total_challenges else None,
+    }
 
 
 class StudentRepository:
@@ -117,8 +140,83 @@ class StudentRepository:
         latest_warning = next(iter(student.warnings), None)
         if latest_warning:
             result['warning'] = latest_warning.to_dict()
+
+        result['theory_practice'] = StudentRepository.get_theory_practice(student_id)
+        result['profile_metrics'] = StudentRepository.get_profile_metrics(student_id)
         
         return result
+
+    @staticmethod
+    def get_theory_practice(student_id: int) -> Optional[Dict]:
+        """获取归一化后的理论/实践对比。"""
+        student = Student.query.get(student_id)
+        if not student:
+            return None
+
+        theory_score = 0.0
+        if student.behavior:
+            theory_score = student.behavior.calculate_behavior_score()
+
+        practice_score = 0.0
+        if student.practice:
+            practice_score = student.practice.calculate_practice_score()
+
+        theory_score = max(0.0, min(float(theory_score or 0), 100.0))
+        practice_score = max(0.0, min(float(practice_score or 0), 100.0))
+        diff = theory_score - practice_score
+
+        if theory_score >= 70 and practice_score >= 70:
+            type_name = '双强'
+        elif theory_score < 60 and practice_score < 60:
+            type_name = '双弱'
+        elif diff >= 10:
+            type_name = '理论强实践弱'
+        elif diff <= -10:
+            type_name = '理论弱实践强'
+        else:
+            type_name = '均衡'
+
+        return {
+            'theory_score': round(theory_score, 2),
+            'practice_score': round(practice_score, 2),
+            'diff': round(diff, 2),
+            'type': type_name,
+            'theory_source': '雨课堂行为综合评分',
+            'practice_source': '头歌总成绩/平均实验分/活跃度归一化综合评分'
+        }
+
+    @staticmethod
+    def get_profile_metrics(student_id: int) -> Optional[Dict]:
+        """获取学生画像补充指标。"""
+        student = Student.query.get(student_id)
+        if not student:
+            return None
+
+        masteries = StudentKnowledgeMastery.query.filter(
+            StudentKnowledgeMastery.student_id == student_id,
+            StudentKnowledgeMastery.knowledge_name != '__汇总__'
+        ).all()
+        weak_count = len([m for m in masteries if (m.mastery_rate or 0) < 60])
+        avg_mastery = None
+        if masteries:
+            avg_mastery = sum((m.mastery_rate or 0) for m in masteries) / len(masteries)
+
+        assignment_count = 0
+        avg_assignment_score = None
+        high_retry_count = 0
+        if student.practice:
+            assignment_count = student.practice.assignment_count or 0
+            avg_assignment_score = student.practice.avg_experiment_score
+            high_retry_count = student.practice.high_retry_count or 0
+
+        return {
+            'knowledge_count': len(masteries),
+            'weak_knowledge_count': weak_count,
+            'avg_mastery_rate': round(avg_mastery, 2) if avg_mastery is not None else None,
+            'assignment_count': assignment_count,
+            'avg_assignment_score': avg_assignment_score,
+            'high_retry_count': high_retry_count
+        }
     
     @staticmethod
     def get_full_overview(student_id: int) -> Optional[Dict]:
@@ -141,37 +239,21 @@ class StudentRepository:
                 'student_no': student.student_no,
                 'name': student.name,
                 'class_name': student.class_info.class_name if student.class_info else None,
-                'major': student.major
+                'major': student.major,
+                'created_at': student.created_at.strftime('%Y-%m-%d %H:%M:%S') if student.created_at else None,
+                'updated_at': student.updated_at.strftime('%Y-%m-%d %H:%M:%S') if student.updated_at else None
             }
         }
         
         # 行为数据
         if student.behavior:
-            b = student.behavior
-            result['behavior'] = {
-                'attendance_rate': b.attendance_rate,
-                'ppt_view_rate': b.ppt_view_rate,
-                'video_finish_rate': b.video_finish_rate,
-                'exercise_submit_rate': b.exercise_submit_rate,
-                'exercise_score_rate': b.exercise_score_rate,
-                'discussion_count': b.discussion_count,
-                'reply_count': b.reply_count,
-                'behavior_score': b.behavior_score
-            }
+            result['behavior'] = student.behavior.to_dict()
         else:
             result['behavior'] = None
         
         # 实践数据
         if student.practice:
-            p = student.practice
-            result['practice'] = {
-                'total_score': p.total_score,
-                'activity_score': p.activity_score,
-                'avg_experiment_score': p.avg_experiment_score,
-                'assignment_count': p.assignment_count,
-                'high_retry_count': p.high_retry_count,
-                'practice_score': p.practice_score
-            }
+            result['practice'] = student.practice.to_dict()
         else:
             result['practice'] = None
         
@@ -183,36 +265,56 @@ class StudentRepository:
         knowledge_overview = {
             'all_points': [],
             'weak_points': [],
+            'summary': None,
+            'stats': {
+                'total_points': 0,
+                'weak_point_count': 0,
+                'avg_mastery_rate': None,
+                'avg_completion_rate': None,
+                'avg_correct_rate': None
+            },
             'overall_mastery_rate': None,
-            'overall_completion_rate': None
+            'overall_completion_rate': None,
+            'overall_correct_rate': None
         }
         
         if masteries:
             weak_threshold = 60
             for m in masteries:
-                point = {
-                    'knowledge_name': m.knowledge_name,
-                    'mastery_rate': m.mastery_rate,
-                    'mastery_level': m.mastery_level,
-                    'mastery_level_name': StudentKnowledgeMastery.get_level_name(m.mastery_level),
-                    'source': m.source
-                }
+                point = m.to_dict()
+                if m.knowledge_name == '__汇总__':
+                    knowledge_overview['summary'] = point
+                    knowledge_overview['overall_mastery_rate'] = m.mastery_rate
+                    knowledge_overview['overall_completion_rate'] = m.completion_rate
+                    knowledge_overview['overall_correct_rate'] = m.correct_rate
+                    continue
+
+                point['chapter_no'] = _knowledge_chapter_no(m.knowledge_name)
                 knowledge_overview['all_points'].append(point)
                 if m.mastery_rate < weak_threshold:
                     knowledge_overview['weak_points'].append(point)
             
-            # 排序：薄弱点按掌握率升序，全部按掌握率降序
-            knowledge_overview['all_points'].sort(key=lambda x: x['mastery_rate'], reverse=True)
-            
-            # 查找汇总记录
-            summary = StudentKnowledgeMastery.get_student_knowledge(student_id, '__汇总__')
-            if summary:
-                knowledge_overview['overall_mastery_rate'] = summary.mastery_rate
+            knowledge_overview['all_points'].sort(key=_knowledge_sort_key)
+            knowledge_overview['weak_points'].sort(key=lambda x: (x.get('mastery_rate') or 0, _knowledge_sort_key(x)))
+
+            points = knowledge_overview['all_points']
+            completion_points = [p for p in points if p.get('completion_rate') is not None]
+            correct_points = [p for p in points if p.get('correct_rate') is not None]
+            knowledge_overview['stats'] = {
+                'total_points': len(points),
+                'weak_point_count': len(knowledge_overview['weak_points']),
+                'avg_mastery_rate': round(sum((p.get('mastery_rate') or 0) for p in points) / len(points), 2) if points else None,
+                'avg_completion_rate': round(sum((p.get('completion_rate') or 0) for p in completion_points) / len(completion_points), 2) if completion_points else None,
+                'avg_correct_rate': round(sum((p.get('correct_rate') or 0) for p in correct_points) / len(correct_points), 2) if correct_points else None
+            }
         
         result['knowledge'] = knowledge_overview
         
         # 预警信息
-        latest_warning = next(iter(student.warnings), None)
+        warnings = WarningRecord.get_by_student_id(student_id)
+        result['warnings'] = [w.to_dict() for w in warnings]
+
+        latest_warning = warnings[0] if warnings else None
         if latest_warning:
             result['warning'] = {
                 'warning_score': latest_warning.warning_score,
@@ -224,29 +326,12 @@ class StudentRepository:
         else:
             result['warning'] = None
         
-        # 作业明细（从Excel文件直接读取）
-        result['assignments'] = _read_educoder_assignment_details(student.student_no)
+        # 作业明细（导入时已落库，请求时直接从数据库读取）
+        result['assignments'] = _read_educoder_assignment_details(student.id)
+        result['assignment_summary'] = _summarize_assignments(result['assignments'])
         
-        # 理论vs实践对比
-        theory_score = student.behavior.behavior_score if student.behavior is not None else 0
-        practice_score = student.practice.practice_score if student.practice is not None else 0
-        diff = theory_score - practice_score
-        
-        if theory_score >= 60 and practice_score >= 60:
-            type_name = '双强'
-        elif theory_score < 60 and practice_score < 60:
-            type_name = '双弱'
-        elif theory_score >= practice_score:
-            type_name = '理论强实践弱'
-        else:
-            type_name = '理论弱实践强'
-        
-        result['theory_practice'] = {
-            'theory_score': round(theory_score, 2),
-            'practice_score': round(practice_score, 2),
-            'diff': round(diff, 2),
-            'type': type_name
-        }
+        result['theory_practice'] = StudentRepository.get_theory_practice(student_id)
+        result['profile_metrics'] = StudentRepository.get_profile_metrics(student_id)
         
         return result
     

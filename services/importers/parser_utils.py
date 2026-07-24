@@ -214,6 +214,13 @@ def clean_student_no(value: Any) -> Optional[str]:
     """
     if pd.isna(value):
         return None
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            if float(value).is_integer():
+                return str(int(value))
+        except (TypeError, ValueError, OverflowError):
+            pass
     
     # 转换为字符串并去除空白
     student_no = str(value).strip()
@@ -224,6 +231,9 @@ def clean_student_no(value: Any) -> Optional[str]:
             student_no = str(int(float(student_no)))
         except:
             pass
+
+    if re.fullmatch(r'\d+\.0+', student_no):
+        student_no = student_no.split('.')[0]
     
     # 去除前导零（统一格式，防止Excel不同单元格格式导致重复学生）
     student_no = student_no.lstrip('0') or '0'
