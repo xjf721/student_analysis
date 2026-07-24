@@ -123,8 +123,18 @@ student_analysis/
 
 ## 导出部署包
 
-```bash
-bash export.sh
+Windows：
+
+```bat
+export.bat
 ```
 
-生成的 ZIP 文件位于 `export/` 目录，不包含虚拟环境或 `node_modules` 等依赖目录；部署后需重新安装依赖并重新设置上述环境变量。
+Linux / macOS / WSL：
+
+```bash
+./export.sh
+```
+
+也可以追加版本标签，例如 `export.bat --version demo-1` 或
+`./export.sh --version demo-1`。生成的 ZIP 文件位于 `export/` 目录，
+不包含虚拟环境、原始 Excel、上传文件、日志或 `node_modules`；部署后需重新安装依赖并重新设置上述环境变量。
