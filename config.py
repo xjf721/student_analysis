@@ -3,6 +3,7 @@
 教学过程智能分析与预警平台 - 配置文件
 """
 import os
+import secrets
 from pathlib import Path
 
 # 项目根目录
@@ -25,8 +26,10 @@ SQLALCHEMY_TRACK_MODIFICATIONS = False
 SQLALCHEMY_ECHO = False  # 生产环境关闭SQL日志
 
 # Flask配置
-SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 DEBUG = True
+
+_DEVELOPMENT_SECRET_KEY = secrets.token_urlsafe(32)
+_TESTING_SECRET_KEY = secrets.token_urlsafe(32)
 
 # 文件上传配置
 UPLOAD_FOLDER = BASE_DIR / 'uploads'
@@ -79,7 +82,7 @@ WARNING_LEVELS = {
 
 class Config:
     """基础配置"""
-    SECRET_KEY = SECRET_KEY
+    SECRET_KEY = None
     SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI
     SQLALCHEMY_TRACK_MODIFICATIONS = SQLALCHEMY_TRACK_MODIFICATIONS
     UPLOAD_FOLDER = str(UPLOAD_FOLDER)
@@ -96,6 +99,7 @@ class Config:
 
 class DevelopmentConfig(Config):
     """开发环境配置"""
+    SECRET_KEY = _DEVELOPMENT_SECRET_KEY
     DEBUG = True
     SQLALCHEMY_ECHO = True
 
@@ -104,10 +108,12 @@ class ProductionConfig(Config):
     """生产环境配置"""
     DEBUG = False
     SQLALCHEMY_ECHO = False
+    SESSION_COOKIE_SECURE = True
 
 
 class TestingConfig(Config):
     """测试环境配置"""
+    SECRET_KEY = _TESTING_SECRET_KEY
     TESTING = True
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
 
@@ -117,3 +123,10 @@ config_by_name = {
     'prod': ProductionConfig,
     'test': TestingConfig
 }
+
+
+def get_ephemeral_secret_key(config_name: str):
+    return {
+        'dev': _DEVELOPMENT_SECRET_KEY,
+        'test': _TESTING_SECRET_KEY,
+    }.get(config_name)

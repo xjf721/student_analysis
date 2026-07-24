@@ -1,3 +1,4 @@
+import pytest
 from werkzeug.security import generate_password_hash
 
 
@@ -89,3 +90,51 @@ def test_login_rate_limit(tmp_path):
         'username': 'admin', 'password': 'wrong',
     })
     assert response.status_code == 429
+
+
+def test_production_requires_secret_key_before_database_initialization(monkeypatch):
+    import app as app_module
+
+    monkeypatch.delenv('SECRET_KEY', raising=False)
+    database_touched = False
+
+    def fail_if_database_is_initialized(_app):
+        nonlocal database_touched
+        database_touched = True
+        raise AssertionError('database initialization must not occur')
+
+    monkeypatch.setattr(app_module, 'init_db', fail_if_database_is_initialized)
+
+    with pytest.raises(RuntimeError, match='SECRET_KEY'):
+        app_module.create_app('prod')
+
+    assert database_touched is False
+
+
+def test_production_uses_secure_session_cookies(tmp_path):
+    from app import create_app
+
+    production_app = create_app('prod', overrides={
+        'SQLALCHEMY_DATABASE_URI': f"sqlite:///{tmp_path / 'production.db'}",
+        'SECRET_KEY': 'production-test-secret',
+    })
+
+    assert production_app.config['SESSION_COOKIE_SECURE'] is True
+
+
+def test_development_and_testing_factories_work_without_environment_secret(tmp_path, monkeypatch):
+    from app import create_app
+
+    monkeypatch.delenv('SECRET_KEY', raising=False)
+
+    development_app = create_app('dev', overrides={
+        'SQLALCHEMY_DATABASE_URI': f"sqlite:///{tmp_path / 'development.db'}",
+    })
+    testing_app = create_app('test', overrides={
+        'SQLALCHEMY_DATABASE_URI': f"sqlite:///{tmp_path / 'testing.db'}",
+    })
+
+    assert development_app.config['SECRET_KEY']
+    assert testing_app.config['SECRET_KEY']
+    assert development_app.config['SESSION_COOKIE_SECURE'] is False
+    assert testing_app.config['SESSION_COOKIE_SECURE'] is False

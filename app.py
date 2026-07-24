@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from flask import Flask
 
-from config import config_by_name
+from config import config_by_name, get_ephemeral_secret_key
 from extensions import csrf, limiter
 from models import init_db
 from controllers import (
@@ -31,8 +31,18 @@ def create_app(config_name: str = 'dev', overrides: dict = None) -> Flask:
     
     # 加载配置
     app.config.from_object(config_by_name[config_name])
+    environment_secret = os.environ.get('SECRET_KEY')
+    if environment_secret:
+        app.config['SECRET_KEY'] = environment_secret
     if overrides:
         app.config.update(overrides)
+
+    if not app.config.get('SECRET_KEY'):
+        ephemeral_secret = get_ephemeral_secret_key(config_name)
+        if ephemeral_secret:
+            app.config['SECRET_KEY'] = ephemeral_secret
+        else:
+            raise RuntimeError('SECRET_KEY must be configured for production')
 
     csrf.init_app(app)
     limiter.init_app(app)
