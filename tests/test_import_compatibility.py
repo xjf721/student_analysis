@@ -100,13 +100,21 @@ def test_import_records_endpoint_remains_global_until_class_selection_exists(app
         ])
         db.session.commit()
 
+    anonymous_response = client.get('/api/import/records?limit=20')
+    assert anonymous_response.status_code == 401
+
+    login = client.post('/login', data={
+        'username': 'admin', 'password': 'correct-password',
+    })
+    assert login.status_code == 302
+
     response = client.get('/api/import/records?limit=20')
 
     assert response.status_code == 200
     assert {record['class_id'] for record in response.get_json()} == {first_id, second_id}
 
 
-def test_task_one_default_does_not_globally_block_existing_post_routes(tmp_path):
+def test_default_csrf_rejects_existing_post_routes_without_a_token(tmp_path):
     test_app = create_app('test', overrides={
         'SQLALCHEMY_DATABASE_URI': f"sqlite:///{tmp_path / 'csrf-default.db'}",
         'RATELIMIT_ENABLED': False,
@@ -118,7 +126,7 @@ def test_task_one_default_does_not_globally_block_existing_post_routes(tmp_path)
 
     response = test_app.test_client().post('/api/import/clear-all')
 
-    assert response.status_code == 200
+    assert response.status_code == 400
 
     with test_app.app_context():
         db.session.remove()

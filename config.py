@@ -89,7 +89,7 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() == 'true'
-    WTF_CSRF_ENABLED = False
+    WTF_CSRF_ENABLED = True
     WTF_CSRF_TIME_LIMIT = 3600
     RATELIMIT_STORAGE_URI = os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
 

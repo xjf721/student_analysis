@@ -12,8 +12,9 @@ from extensions import csrf, limiter
 from models import init_db
 from controllers import (
     dashboard_bp, student_bp, knowledge_bp, 
-    warning_bp, import_bp
+    warning_bp, import_bp, auth_bp
 )
+from services.class_context import install_request_guards
 
 
 def create_app(config_name: str = 'dev', overrides: dict = None) -> Flask:
@@ -47,6 +48,8 @@ def create_app(config_name: str = 'dev', overrides: dict = None) -> Flask:
     
     # 注册蓝图
     register_blueprints(app)
+
+    install_request_guards(app)
     
     # 注册错误处理
     register_error_handlers(app)
@@ -92,6 +95,7 @@ def setup_logging(app: Flask) -> None:
 
 def register_blueprints(app: Flask) -> None:
     """注册蓝图"""
+    app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(student_bp)
     app.register_blueprint(knowledge_bp)
