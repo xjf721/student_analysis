@@ -9,11 +9,20 @@
         <span class="text-muted">{{ class_item.term or '未填写学期' }} · {{ class_item.teacher_name or '未填写教师' }}</span>
       </div>
       {% if class_item.status == 'active' %}
-      <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#class-upload-panel">
-        上传数据
-      </button>
+      <div>
+        <button class="btn btn-warning" id="class-reanalyze-btn" type="button">
+          <i class="fas fa-cogs"></i> 重新分析本班
+        </button>
+        <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#class-upload-panel">
+          上传数据
+        </button>
+      </div>
       {% endif %}
     </div>
+
+    {% if class_item.status == 'active' %}
+    <div id="class-analysis-result" class="mb-3" style="display:none;"></div>
+    {% endif %}
 
     {% if class_item.status == 'active' %}
     <div class="collapse mb-3" id="class-upload-panel">
@@ -108,6 +117,32 @@ $(function () {
   $('#class-upload-form').on('submit', function (event) {
     event.preventDefault();
     submitClassUpload(new FormData(this));
+  });
+
+  $('#class-reanalyze-btn').on('click', function () {
+    var button = this;
+    $(button).prop('disabled', true);
+    $('#class-analysis-result').show().html('<div class="alert alert-info">正在分析本班数据...</div>');
+    $.ajax({
+      url: '/api/import/analyze',
+      type: 'POST',
+      success: function (data) {
+        var message = data.success ? (data.message || '分析完成') : (data.message || '分析失败');
+        var level = data.success ? 'success' : 'danger';
+        $('#class-analysis-result').html(
+          '<div class="alert alert-' + level + '">' + escapeHtml(message) + '</div>'
+        );
+      },
+      error: function (xhr) {
+        var payload = xhr.responseJSON || {};
+        $('#class-analysis-result').html(
+          '<div class="alert alert-danger">' + escapeHtml(payload.message || '分析失败') + '</div>'
+        );
+      },
+      complete: function () {
+        $(button).prop('disabled', false);
+      }
+    });
   });
 });
 </script>

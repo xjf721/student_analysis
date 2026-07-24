@@ -44,7 +44,12 @@ $('#create-class-form').on('submit', function (event) { event.preventDefault(); 
 $('.edit-class').on('click', function () { var form = document.getElementById('edit-class-form'); form.elements.id.value = this.dataset.id; form.elements.class_name.value = this.dataset.className; form.elements.teacher_name.value = this.dataset.teacherName; form.elements.term.value = this.dataset.term; form.elements.notes.value = this.dataset.notes; });
 $('#edit-class-form').on('submit', function (event) { event.preventDefault(); var data = Object.fromEntries(new FormData(this)); var classId = data.id; delete data.id; $.ajax({url:'/api/classes/' + classId, type:'PATCH', contentType:'application/json', data:JSON.stringify(data), success:function(){ location.reload(); }}); });
 $('.select-class').on('click', function () { $.post('/api/classes/' + this.dataset.id + '/select', function (data) { location.href = data.redirect; }); });
-$('.state-class').on('click', function () { $.post('/api/classes/' + this.dataset.id + '/' + this.dataset.action, function () { location.reload(); }); });
+$('.state-class').on('click', function () {
+  if (this.dataset.action === 'archive' && !confirm('确认归档这个班级吗？归档后将不能继续上传数据。')) {
+    return;
+  }
+  $.post('/api/classes/' + this.dataset.id + '/' + this.dataset.action, function () { location.reload(); });
+});
 $('.delete-class').on('click', function () { if (confirm('确认删除这个空班级吗？')) { $.ajax({url:'/api/classes/' + this.dataset.id, type:'DELETE', success:function(){ location.reload(); }, error:function(xhr){ alert(xhr.responseJSON.error === 'class_has_data' ? '班级已有数据，不能删除。' : '删除失败。'); }}); } });
 </script>
 {% endblock %}

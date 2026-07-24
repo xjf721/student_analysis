@@ -295,3 +295,51 @@ def test_warning_refresh_preserves_other_class_records(app, two_classes):
         assert preserved.student_id == second_student_id
         assert preserved.warning_score == other_warning_score
         assert WarningRecord.query.join(Student).filter(Student.class_id == second_id).count() == 1
+
+
+def test_automatic_warning_analysis_removes_warning_after_student_becomes_safe(
+    app, two_classes
+):
+    first_id, second_id = two_classes
+    first_student_id, second_student_id = seed_two_class_students(
+        app, first_id, second_id
+    )
+    with app.app_context():
+        behavior = StudentBehavior.query.filter_by(student_id=first_student_id).one()
+        behavior.attendance_rate = 10
+        behavior.video_finish_rate = 10
+        db.session.commit()
+
+        engine = WarningEngine(first_id)
+        engine.analyze_all()
+        assert WarningRecord.query.filter_by(student_id=first_student_id).count() == 1
+
+        behavior.attendance_rate = 100
+        behavior.video_finish_rate = 100
+        behavior.behavior_score = 100
+        db.session.commit()
+        engine.analyze_all()
+
+        assert WarningRecord.query.filter_by(student_id=first_student_id).count() == 0
+        assert WarningRecord.query.filter_by(student_id=second_student_id).count() == 1
+
+
+def test_automatic_warning_analysis_removes_warning_when_behavior_is_removed(
+    app, two_classes
+):
+    first_id, second_id = two_classes
+    first_student_id, second_student_id = seed_two_class_students(
+        app, first_id, second_id
+    )
+    with app.app_context():
+        engine = WarningEngine(first_id)
+        engine.analyze_all()
+        assert WarningRecord.query.filter_by(student_id=first_student_id).count() == 1
+
+        behavior = StudentBehavior.query.filter_by(student_id=first_student_id).one()
+        db.session.delete(behavior)
+        db.session.commit()
+        engine.analyze_all()
+
+        assert WarningRecord.query.filter_by(student_id=first_student_id).count() == 0
+        assert WarningRecord.query.filter_by(student_id=second_student_id).count() == 1

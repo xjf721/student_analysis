@@ -47,6 +47,15 @@ def test_class_pages_use_bootstrap_five_modal_markup(client):
     assert b'data-bs-target="#create-class-modal"' in response.data
 
 
+def test_archiving_a_class_requires_explicit_confirmation(client):
+    login(client)
+
+    page = client.get('/classes').get_data(as_text=True)
+
+    assert "this.dataset.action === 'archive'" in page
+    assert 'confirm(' in page
+
+
 def test_class_api_rejects_non_object_payload(client):
     login(client)
 

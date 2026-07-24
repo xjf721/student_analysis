@@ -558,6 +558,17 @@ def test_class_detail_has_locked_upload_for_its_class(client, two_classes):
         assert session['active_class_id'] == second_id
 
 
+def test_class_detail_exposes_reanalysis_for_the_current_class(client, two_classes):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+
+    html = client.get(f'/classes/{first_id}').get_data(as_text=True)
+
+    assert 'id="class-reanalyze-btn"' in html
+    assert "url: '/api/import/analyze'" in html
+    assert '重新分析本班' in html
+
+
 def test_import_query_class_synchronizes_active_session(client, two_classes):
     first_id, second_id = two_classes
     login_and_select(client, first_id)

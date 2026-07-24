@@ -68,6 +68,10 @@ class WarningEngine:
         Args:
             student: 学生对象
         """
+        # 预警是当前分析结果的快照。先删除旧记录，确保学生恢复正常或
+        # 行为数据被移除后，不会继续显示上一次分析留下的预警。
+        WarningRecord.query.filter_by(student_id=student.id).delete()
+
         # 获取学生的行为和实践数据
         behavior = StudentBehavior.get_by_student_id(student.id)
         practice = StudentPractice.get_by_student_id(student.id)
@@ -140,9 +144,6 @@ class WarningEngine:
         if risk_factors:
             # 取风险最高的类型
             max_risk = max(risk_factors, key=lambda x: x['score'])
-            
-            # 删除旧预警记录
-            WarningRecord.query.filter_by(student_id=student.id).delete()
             
             # 创建新预警记录
             warning = WarningRecord(
