@@ -12,7 +12,7 @@ Windows 可使用 `venv\Scripts\activate`，Linux、WSL 和 macOS 可使用 `sou
 
 ## 必需配置
 
-启动脚本在访问数据库之前检查管理员凭据；缺少配置时会明确报错并退出，不会使用默认管理员账号或密码。
+启动脚本在访问数据库之前检查管理员凭据和数据库凭据；缺少配置时会明确报错并退出，不会使用默认管理员账号、密码或数据库口令。
 
 1. 设置 `ADMIN_USERNAME`。
 2. 使用 Werkzeug 的 `generate_password_hash` 生成 `ADMIN_PASSWORD_HASH`。以下命令交互式读取密码，不把明文密码写入命令历史：
@@ -37,6 +37,8 @@ $env:ADMIN_PASSWORD_HASH = "粘贴生成的 Werkzeug 哈希"
 $env:FLASK_ENV = "prod"
 $env:SECRET_KEY = "粘贴生成的随机密钥"
 $env:SESSION_COOKIE_SECURE = "true"
+$env:MYSQL_USER = "应用专用数据库用户"
+$env:MYSQL_PASSWORD = "数据库密码"
 ```
 
 Bash 示例：
@@ -47,9 +49,11 @@ export ADMIN_PASSWORD_HASH='粘贴生成的 Werkzeug 哈希'
 export FLASK_ENV='prod'
 export SECRET_KEY='粘贴生成的随机密钥'
 export SESSION_COOKIE_SECURE=true
+export MYSQL_USER='应用专用数据库用户'
+export MYSQL_PASSWORD='数据库密码'
 ```
 
-数据库连接由 `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASSWORD` 和 `MYSQL_DATABASE` 配置。生产部署应显式设置这些变量，并使用专用数据库账号。
+数据库连接由 `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASSWORD` 和 `MYSQL_DATABASE` 配置。`MYSQL_USER` 与 `MYSQL_PASSWORD` 没有内置默认值，在开发和生产启动前都必须显式设置；生产部署应使用权限受限的专用数据库账号。
 
 ## 数据库初始化与受控重建
 
@@ -85,7 +89,7 @@ start.bat
 bash start.sh
 ```
 
-也可以直接运行 `python app.py`。默认服务地址为 <http://localhost:5000>。
+默认服务地址为 <http://localhost:5000>。`FLASK_ENV=prod` 时，启动脚本使用跨平台的 Waitress WSGI 服务器；开发环境才使用 `python app.py` 的 Flask 开发服务器。生产部署不要直接运行 Flask 开发服务器，并应由 HTTPS 反向代理终止 TLS。
 
 ## 首次导入与操作员验收
 

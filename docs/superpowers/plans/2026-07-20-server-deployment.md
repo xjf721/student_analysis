@@ -139,7 +139,6 @@ EXAMPLE_SECRETS = {
     "",
     "change-me",
     "dev-secret-key-change-in-production",
-    "Root@123456",
 }
 
 
@@ -197,8 +196,8 @@ class DevelopmentConfig(Config):
     SQLALCHEMY_ECHO = True
     AUTO_CREATE_DATABASE = True
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
-    MYSQL_USER = os.environ.get("MYSQL_USER", "root")
-    MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "Root@123456")
+    MYSQL_USER = os.environ.get("MYSQL_USER", "")
+    MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "")
     SQLALCHEMY_DATABASE_URI = build_database_uri(
         Config.MYSQL_HOST, Config.MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, Config.MYSQL_DATABASE
     )
@@ -498,7 +497,7 @@ class DeploymentAssetsTest(unittest.TestCase):
         environment = self.read(".env.example")
         self.assertIn("PROXY_NETWORK=reverse-proxy", environment)
         self.assertIn("PROXY_CONTAINER=reverse-proxy", environment)
-        self.assertNotIn("Root@123456", environment)
+        self.assertNotIn("MYSQL_PASSWORD=change-me", environment)
 
 
 if __name__ == "__main__":

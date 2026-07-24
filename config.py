@@ -10,18 +10,22 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 
 # 数据库配置
-# MySQL运行在Docker中，根据实际情况修改
+# 用户名和密码不提供默认值，非测试环境必须显式配置。
 MYSQL_HOST = os.environ.get('MYSQL_HOST', '127.0.0.1')
-MYSQL_PORT = int(os.environ.get('MYSQL_PORT', 3306))
-MYSQL_USER = os.environ.get('MYSQL_USER', 'root')
-MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD', 'Root@123456')
+try:
+    MYSQL_PORT = int(os.environ.get('MYSQL_PORT', 3306))
+except ValueError as error:
+    raise RuntimeError('MYSQL_PORT must be an integer') from error
+MYSQL_USER = os.environ.get('MYSQL_USER')
+MYSQL_PASSWORD = os.environ.get('MYSQL_PASSWORD')
 MYSQL_DATABASE = os.environ.get('MYSQL_DATABASE', 'student_analysis')
 
 from urllib.parse import quote_plus
 
 # 对密码进行URL编码，处理特殊字符
-_encoded_password = quote_plus(MYSQL_PASSWORD)
-SQLALCHEMY_DATABASE_URI = f'mysql+pymysql://{MYSQL_USER}:{_encoded_password}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}?charset=utf8mb4'
+_encoded_user = quote_plus(MYSQL_USER or '')
+_encoded_password = quote_plus(MYSQL_PASSWORD or '')
+SQLALCHEMY_DATABASE_URI = f'mysql+pymysql://{_encoded_user}:{_encoded_password}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}?charset=utf8mb4'
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 SQLALCHEMY_ECHO = False  # 生产环境关闭SQL日志
 
@@ -130,3 +134,16 @@ def get_ephemeral_secret_key(config_name: str):
         'dev': _DEVELOPMENT_SECRET_KEY,
         'test': _TESTING_SECRET_KEY,
     }.get(config_name)
+
+
+def validate_database_environment() -> None:
+    """在 MySQL 初始化前拒绝缺失的运行时凭据。"""
+    required_variables = ('MYSQL_USER', 'MYSQL_PASSWORD')
+    missing = [
+        name for name in required_variables
+        if not os.environ.get(name, '').strip()
+    ]
+    if missing:
+        raise RuntimeError(
+            'Missing required MySQL configuration: ' + ', '.join(missing)
+        )

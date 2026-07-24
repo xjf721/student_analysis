@@ -22,10 +22,6 @@ from typing import Optional
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE
-import pymysql
-
-
 RESET_CONFIRMATION = 'DELETE-ALL-STUDENT-ANALYSIS-DATA'
 
 
@@ -42,6 +38,29 @@ def load_app_dependencies():
     return create_app, db
 
 
+def load_database_dependencies():
+    """参数校验完成后才加载 MySQL 驱动和连接配置。"""
+    import pymysql
+    from config import (
+        MYSQL_DATABASE,
+        MYSQL_HOST,
+        MYSQL_PASSWORD,
+        MYSQL_PORT,
+        MYSQL_USER,
+        validate_database_environment,
+    )
+
+    validate_database_environment()
+    settings = {
+        'host': MYSQL_HOST,
+        'port': MYSQL_PORT,
+        'user': MYSQL_USER,
+        'password': MYSQL_PASSWORD,
+        'database': MYSQL_DATABASE,
+    }
+    return pymysql, settings
+
+
 def create_database() -> bool:
     """
     创建数据库（如果不存在）
@@ -49,14 +68,14 @@ def create_database() -> bool:
     Returns:
         是否成功
     """
-    print(f"正在连接MySQL服务器: {MYSQL_HOST}:{MYSQL_PORT}...")
-    
     try:
+        pymysql, settings = load_database_dependencies()
+        print(f"正在连接MySQL服务器: {settings['host']}:{settings['port']}...")
         connection = pymysql.connect(
-            host=MYSQL_HOST,
-            port=MYSQL_PORT,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
+            host=settings['host'],
+            port=settings['port'],
+            user=settings['user'],
+            password=settings['password'],
             charset='utf8mb4'
         )
         
@@ -64,26 +83,26 @@ def create_database() -> bool:
             with connection.cursor() as cursor:
                 # 检查数据库是否存在
                 cursor.execute(
-                    f"SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '{MYSQL_DATABASE}'"
+                    f"SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = '{settings['database']}'"
                 )
                 result = cursor.fetchone()
                 
                 if result:
-                    print(f"✓ 数据库 '{MYSQL_DATABASE}' 已存在")
+                    print(f"✓ 数据库 '{settings['database']}' 已存在")
                     return True
                 else:
                     # 创建数据库
                     cursor.execute(
-                        f"CREATE DATABASE IF NOT EXISTS `{MYSQL_DATABASE}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                        f"CREATE DATABASE IF NOT EXISTS `{settings['database']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
                     )
                     connection.commit()
-                    print(f"✓ 数据库 '{MYSQL_DATABASE}' 已创建")
+                    print(f"✓ 数据库 '{settings['database']}' 已创建")
                     return True
         finally:
             connection.close()
             
-    except pymysql.Error as e:
-        print(f"✗ 连接MySQL失败: {e}")
+    except Exception as e:
+        print(f"✗ MySQL 配置或连接失败: {e}")
         print("  请检查：")
         print("  1. MySQL服务是否正在运行")
         print("  2. 数据库配置是否正确（config.py）")
@@ -97,36 +116,36 @@ def reset_database() -> bool:
     Returns:
         是否成功
     """
-    print(f"⚠ 警告：即将删除数据库 '{MYSQL_DATABASE}' 及其所有数据！")
-
     try:
+        pymysql, settings = load_database_dependencies()
+        print(f"⚠ 警告：即将删除数据库 '{settings['database']}' 及其所有数据！")
         connection = pymysql.connect(
-            host=MYSQL_HOST,
-            port=MYSQL_PORT,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
+            host=settings['host'],
+            port=settings['port'],
+            user=settings['user'],
+            password=settings['password'],
             charset='utf8mb4'
         )
         
         try:
             with connection.cursor() as cursor:
                 # 删除数据库
-                cursor.execute(f"DROP DATABASE IF EXISTS `{MYSQL_DATABASE}`")
+                cursor.execute(f"DROP DATABASE IF EXISTS `{settings['database']}`")
                 connection.commit()
-                print(f"✓ 数据库 '{MYSQL_DATABASE}' 已删除")
+                print(f"✓ 数据库 '{settings['database']}' 已删除")
                 
                 # 重新创建
                 cursor.execute(
-                    f"CREATE DATABASE `{MYSQL_DATABASE}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                    f"CREATE DATABASE `{settings['database']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
                 )
                 connection.commit()
-                print(f"✓ 数据库 '{MYSQL_DATABASE}' 已重新创建")
+                print(f"✓ 数据库 '{settings['database']}' 已重新创建")
                 return True
         finally:
             connection.close()
             
-    except pymysql.Error as e:
-        print(f"✗ 重置数据库失败: {e}")
+    except Exception as e:
+        print(f"✗ MySQL 配置或重置失败: {e}")
         return False
 
 

@@ -18,6 +18,14 @@ if not defined ADMIN_PASSWORD_HASH (
     echo [错误] 缺少 ADMIN_PASSWORD_HASH。请使用 Werkzeug 生成密码哈希后设置。
     exit /b 2
 )
+if not defined MYSQL_USER (
+    echo [错误] 缺少 MYSQL_USER。请设置专用数据库用户名。
+    exit /b 2
+)
+if not defined MYSQL_PASSWORD (
+    echo [错误] 缺少 MYSQL_PASSWORD。请设置数据库密码。
+    exit /b 2
+)
 
 :: 生产环境必须提供持久、高熵密钥；HTTPS 会话 Cookie 强制仅通过安全连接发送。
 if /I "%FLASK_ENV%"=="prod" (
@@ -31,6 +39,12 @@ if /I "%FLASK_ENV%"=="prod" (
 set "PYTHON_CMD=python"
 if exist ".venv\Scripts\python.exe" set "PYTHON_CMD=.venv\Scripts\python.exe"
 if exist "venv\Scripts\python.exe" set "PYTHON_CMD=venv\Scripts\python.exe"
+
+"%PYTHON_CMD%" -c "from config import validate_database_environment; validate_database_environment()" 2>nul
+if errorlevel 1 (
+    echo [错误] MYSQL_USER 和 MYSQL_PASSWORD 必须是非空白值，MYSQL_PORT 必须有效。
+    exit /b 2
+)
 
 echo [1/3] 检查 MySQL 连接...
 "%PYTHON_CMD%" -c "import pymysql; from config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD; pymysql.connect(host=MYSQL_HOST, port=MYSQL_PORT, user=MYSQL_USER, password=MYSQL_PASSWORD, charset='utf8mb4').close(); print('      MySQL 连接正常')"
@@ -46,7 +60,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [3/3] 启动 Flask 服务...
+echo [3/3] 启动 Web 服务...
 echo       服务地址: http://localhost:5000
-"%PYTHON_CMD%" app.py
+if /I "%FLASK_ENV%"=="prod" (
+    echo       使用 Waitress 生产 WSGI 服务器
+    "%PYTHON_CMD%" -m waitress --listen=0.0.0.0:5000 app:app
+) else (
+    echo       使用 Flask 开发服务器
+    "%PYTHON_CMD%" app.py
+)
 exit /b %errorlevel%

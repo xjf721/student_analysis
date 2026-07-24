@@ -7,7 +7,11 @@ import logging
 from pathlib import Path
 from flask import Flask
 
-from config import config_by_name, get_ephemeral_secret_key
+from config import (
+    config_by_name,
+    get_ephemeral_secret_key,
+    validate_database_environment,
+)
 from extensions import csrf, limiter
 from models import init_db
 from controllers import (
@@ -43,6 +47,9 @@ def create_app(config_name: str = 'dev', overrides: dict = None) -> Flask:
             app.config['SECRET_KEY'] = ephemeral_secret
         else:
             raise RuntimeError('SECRET_KEY must be configured for production')
+
+    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('mysql'):
+        validate_database_environment()
 
     csrf.init_app(app)
     limiter.init_app(app)
@@ -133,4 +140,4 @@ app = create_app(os.environ.get('FLASK_ENV', 'dev'))
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=app.config.get('DEBUG', False))
