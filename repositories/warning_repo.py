@@ -81,9 +81,19 @@ class WarningRepository:
         query = query.join(Student).filter(Student.class_id == class_id)
         
         results = query.all()
+
+        warning_student_count = db.session.query(
+            func.count(func.distinct(WarningRecord.student_id))
+        ).join(
+            Student, WarningRecord.student_id == Student.id
+        ).filter(
+            Student.class_id == class_id,
+            WarningRecord.warning_score >= 60,
+        ).scalar() or 0
         
         stats = {
             'total_warnings': 0,
+            'warning_student_count': warning_student_count,
             'by_level': {level: 0 for level in WARNING_LEVELS.values()},
             'level_names': list(WARNING_LEVELS.values())
         }

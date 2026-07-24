@@ -74,9 +74,15 @@
             <nav class="mt-2">
                 <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu">
                     <li class="nav-item">
-                        <a href="{{ url_for('classes.index') }}" class="nav-link {% if request.endpoint and 'classes' in request.endpoint %}active{% endif %}">
+                        <a href="{{ url_for('classes.index') }}" class="nav-link {% if request.endpoint and 'classes' in request.endpoint and request.endpoint != 'classes.compare_page' %}active{% endif %}">
                             <i class="nav-icon fas fa-users"></i>
                             <p>班级管理</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ url_for('classes.compare_page') }}" class="nav-link {% if request.endpoint == 'classes.compare_page' %}active{% endif %}">
+                            <i class="nav-icon fas fa-chart-bar"></i>
+                            <p>班级对比</p>
                         </a>
                     </li>
                     <li class="nav-item">

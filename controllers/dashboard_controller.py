@@ -51,7 +51,7 @@ def get_stats():
         'total_students': total_students,
         'avg_attendance_rate': behavior_stats['avg_attendance_rate'],
         'avg_behavior_score': behavior_stats['avg_behavior_score'],
-        'warning_count': warning_stats['total_warnings'],
+        'warning_count': warning_stats['warning_student_count'],
         'high_risk_count': warning_stats['by_level'].get('高危', 0),
         'weak_knowledge_count': weak_knowledge_count
     })

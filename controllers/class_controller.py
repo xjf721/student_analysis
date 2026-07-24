@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, render_template, request, session, url_for
 
 from models import ClassInfo, db
 from repositories import ClassRepository
+from services.class_comparison import ClassComparisonService, ClassNotFoundError
 
 
 classes_bp = Blueprint('classes', __name__)
@@ -25,6 +26,22 @@ def index():
         'class/index.html',
         classes=[{'item': item, 'overview': ClassRepository.get_overview(item.id)} for item in classes],
     )
+
+
+@classes_bp.get('/class-compare')
+def compare_page():
+    return render_template('class/compare.html', classes=ClassRepository.get_all())
+
+
+@classes_bp.get('/api/classes/compare')
+def compare_classes():
+    class_ids = request.args.getlist('class_id', type=int)
+    try:
+        return jsonify(ClassComparisonService.compare(class_ids))
+    except ClassNotFoundError as error:
+        return jsonify({'error': 'class_not_found', 'class_id': error.class_id}), 400
+    except ValueError:
+        return jsonify({'error': 'at_least_two_distinct_classes_required'}), 400
 
 
 @classes_bp.get('/classes/<int:class_id>')
