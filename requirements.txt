@@ -28,3 +28,7 @@ colorlog==6.8.0
 
 # 开发工具
 flask-shell-ipython==0.4.1
+
+Flask-WTF==1.2.2
+Flask-Limiter==3.12
+pytest==8.3.5

@@ -15,7 +15,7 @@ class KnowledgePointSummary(BaseModel):
     """
     __tablename__ = 'knowledge_point_summary'
 
-    class_id = Column(Integer, ForeignKey('class_info.id'), nullable=True, comment='班级ID')
+    class_id = Column(Integer, ForeignKey('class_info.id'), nullable=False, comment='班级ID')
     knowledge_name = Column(String(200), nullable=False, comment='知识点名称')
     mastery_rate = Column(Float, default=0.0, comment='掌握率(%)')
 

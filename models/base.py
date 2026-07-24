@@ -89,7 +89,8 @@ def init_db(app) -> None:
         app: Flask应用实例
     """
     # 先确保数据库存在
-    ensure_database_exists(app)
+    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('mysql'):
+        ensure_database_exists(app)
     
     db.init_app(app)
     

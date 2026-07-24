@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import Flask
 
 from config import config_by_name
+from extensions import csrf, limiter
 from models import init_db
 from controllers import (
     dashboard_bp, student_bp, knowledge_bp, 
@@ -15,7 +16,7 @@ from controllers import (
 )
 
 
-def create_app(config_name: str = 'dev') -> Flask:
+def create_app(config_name: str = 'dev', overrides: dict = None) -> Flask:
     """
     创建Flask应用实例
     
@@ -29,6 +30,11 @@ def create_app(config_name: str = 'dev') -> Flask:
     
     # 加载配置
     app.config.from_object(config_by_name[config_name])
+    if overrides:
+        app.config.update(overrides)
+
+    csrf.init_app(app)
+    limiter.init_app(app)
     
     # 确保必要的目录存在
     ensure_directories(app)

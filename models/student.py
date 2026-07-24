@@ -19,7 +19,7 @@ class Student(BaseModel):
     
     student_no = Column(String(50), unique=True, nullable=False, comment='学号')
     name = Column(String(100), nullable=False, comment='姓名')
-    class_id = Column(Integer, ForeignKey('class_info.id'), nullable=True, comment='班级ID')
+    class_id = Column(Integer, ForeignKey('class_info.id'), nullable=False, comment='班级ID')
     major = Column(String(100), nullable=True, comment='专业')
     
     # 关联关系

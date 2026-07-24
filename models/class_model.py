@@ -20,6 +20,8 @@ class ClassInfo(BaseModel):
     class_name = Column(String(200), nullable=False, comment='班级名称')
     teacher_name = Column(String(100), nullable=True, comment='任课教师')
     term = Column(String(50), nullable=True, comment='学期')
+    status = Column(String(20), nullable=False, default='active', index=True, comment='active/archived')
+    notes = Column(String(500), nullable=True, comment='班级备注')
     
     # 关联关系
     students = relationship('Student', back_populates='class_info', lazy=True)
@@ -71,6 +73,8 @@ class ClassInfo(BaseModel):
             'class_name': self.class_name,
             'teacher_name': self.teacher_name,
             'term': self.term,
+            'status': self.status,
+            'notes': self.notes,
             'student_count': self.get_student_count(),
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
         }

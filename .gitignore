@@ -98,7 +98,8 @@ venv/
 
 uploads/*.xlsx
 uploads/*.xls
-test_*.py
+/test_*.py
+.superpowers/
 
 ~$*.*
 
