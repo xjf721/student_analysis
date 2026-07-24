@@ -316,7 +316,7 @@ def get_import_records():
     """
     limit = request.args.get('limit', default=20, type=int)
     
-    records = ImportRecord.get_recent_records(limit)
+    records = ImportRecord.get_recent_records(limit=limit)
     
     return jsonify([r.to_dict() for r in records])
 

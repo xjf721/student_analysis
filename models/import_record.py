@@ -2,7 +2,7 @@
 """
 导入日志模型
 """
-from typing import Optional, List
+from typing import Optional, List, Union
 from sqlalchemy import Column, ForeignKey, String, Integer
 from sqlalchemy.orm import relationship
 
@@ -37,8 +37,7 @@ class ImportRecord(BaseModel):
         根据文件名获取导入记录
         
         Args:
-            class_id: 班级ID
-            file_hash: 文件摘要
+            filename: 文件名
             
         Returns:
             ImportRecord对象或None
@@ -46,16 +45,23 @@ class ImportRecord(BaseModel):
         return cls.query.filter_by(filename=filename).first()
     
     @classmethod
-    def is_imported(cls, class_id: int, file_hash: str) -> bool:
+    def is_imported(cls, class_id: Union[int, str], file_hash: Optional[str] = None) -> bool:
         """
         检查文件是否已成功导入
         
         Args:
-            filename: 文件名
+            class_id: 班级ID；未提供 file_hash 时可传入旧调用方式的文件名
+            file_hash: 文件摘要
             
         Returns:
             是否已导入
         """
+        if file_hash is None:
+            return cls.query.filter_by(
+                filename=class_id,
+                import_status='成功',
+            ).first() is not None
+
         return cls.query.filter_by(
             class_id=class_id,
             file_hash=file_hash,
@@ -63,18 +69,21 @@ class ImportRecord(BaseModel):
         ).first() is not None
     
     @classmethod
-    def get_recent_records(cls, class_id: int, limit: int = 20) -> List['ImportRecord']:
+    def get_recent_records(cls, class_id: Optional[int] = None, limit: int = 20) -> List['ImportRecord']:
         """
         获取最近的导入记录
         
         Args:
-            class_id: 班级ID
+            class_id: 班级ID；未提供时返回过渡期的全局记录
             limit: 返回记录数量
             
         Returns:
             导入记录列表
         """
-        return cls.query.filter_by(class_id=class_id).order_by(cls.created_at.desc()).limit(limit).all()
+        query = cls.query
+        if class_id is not None:
+            query = query.filter_by(class_id=class_id)
+        return query.order_by(cls.created_at.desc()).limit(limit).all()
     
     def mark_success(self, success_count: int) -> None:
         """

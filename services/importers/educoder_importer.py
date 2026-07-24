@@ -62,8 +62,14 @@ class EducoderImporter(BaseImporter):
             errors.append(f'不支持的文件格式: {self.file_path.suffix}')
             return False, errors
         
+        try:
+            self._prepare_legacy_import_context()
+        except ValueError as exc:
+            errors.append(str(exc))
+            return False, errors
+
         # 检查是否重复导入（允许覆盖，仅警告）
-        if ImportRecord.is_imported(self.filename):
+        if ImportRecord.is_imported(self.class_id, self.file_hash):
             self.warnings.append(f'文件已导入过: {self.filename}，将覆盖原有数据')
         
         # 读取文件

@@ -7,10 +7,20 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Any, Optional
 from pathlib import Path
+import hashlib
 import pandas as pd
+from flask import current_app
 
 from models import db, ImportRecord
 from .parser_utils import extract_class_info_from_filename, read_excel_smart
+
+
+def calculate_file_hash(file_path: Path) -> str:
+    digest = hashlib.sha256()
+    with file_path.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class BaseImporter(ABC):
@@ -41,6 +51,9 @@ class BaseImporter(ABC):
         self.warnings: List[str] = []
         self.parsed_data: List[Dict] = []
         self.import_record: ImportRecord = None
+        self.class_id: Optional[int] = None
+        self.file_hash: Optional[str] = None
+        self.uploaded_by: Optional[str] = None
         
         # 从文件名提取班级信息（使用原始文件名以保留中文）
         self.class_info = extract_class_info_from_filename(self.display_filename)
@@ -92,8 +105,14 @@ class BaseImporter(ABC):
             errors.append(f'不支持的文件格式: {self.file_path.suffix}')
             return False, errors
         
+        try:
+            self._prepare_legacy_import_context()
+        except ValueError as exc:
+            errors.append(str(exc))
+            return False, errors
+
         # 检查是否重复导入（允许覆盖，仅警告）
-        if ImportRecord.is_imported(self.filename):
+        if ImportRecord.is_imported(self.class_id, self.file_hash):
             self.warnings.append(f'文件已导入过: {self.filename}，将覆盖原有数据')
         
         # 读取文件
@@ -176,13 +195,21 @@ class BaseImporter(ABC):
             return False, '没有数据需要保存'
         
         try:
+            self._prepare_legacy_import_context()
+
             # 清理旧导入记录（支持重新导入）
-            ImportRecord.query.filter_by(filename=self.filename).delete(synchronize_session=False)
+            ImportRecord.query.filter_by(
+                class_id=self.class_id,
+                file_hash=self.file_hash,
+            ).delete(synchronize_session=False)
             db.session.commit()
             
             # 创建新的导入记录
             self.import_record = ImportRecord(
+                class_id=self.class_id,
                 filename=self.filename,
+                file_hash=self.file_hash,
+                uploaded_by=self.uploaded_by,
                 import_type=self.import_type,
                 import_status='进行中'
             )
@@ -298,6 +325,9 @@ class BaseImporter(ABC):
         Returns:
             班级ID，如果无法创建则返回None
         """
+        if self.class_id is not None:
+            return self.class_id
+
         from models import ClassInfo
         
         class_name = self.class_info.get('class_name')
@@ -307,7 +337,8 @@ class BaseImporter(ABC):
         # 查找现有班级
         existing_class = ClassInfo.get_by_name(class_name)
         if existing_class:
-            return existing_class.id
+            self.class_id = existing_class.id
+            return self.class_id
         
         # 创建新班级
         new_class = ClassInfo(
@@ -316,9 +347,21 @@ class BaseImporter(ABC):
             teacher_name=self.class_info.get('teacher_name')
         )
         new_class.save()
+        self.class_id = new_class.id
         
         self.warnings.append(f'自动创建班级: {class_name}')
-        return new_class.id
+        return self.class_id
+
+    def _prepare_legacy_import_context(self) -> int:
+        class_id = self._get_or_create_class()
+        if class_id is None:
+            raise ValueError('无法从文件名解析班级，无法创建导入记录')
+
+        if self.file_hash is None:
+            self.file_hash = calculate_file_hash(self.file_path)
+        if self.uploaded_by is None:
+            self.uploaded_by = current_app.config.get('ADMIN_USERNAME') or 'legacy-import'
+        return class_id
     
     def _safe_get_value(self, row, column: str, default: Any = 0) -> Any:
         """
