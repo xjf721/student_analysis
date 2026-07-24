@@ -9,7 +9,7 @@
         <label for="class-compare-select">选择至少两个班级</label>
         <select id="class-compare-select" class="custom-select" multiple size="{{ [classes|length, 8]|min }}">
           {% for item in classes %}
-          <option value="{{ item.id }}">{{ item.class_name }}（{{ '已归档' if item.status == 'archived' else '进行中' }}）</option>
+          <option value="{{ item.id }}">{{ item.class_name }}{% if item.term %}（{{ item.term }}）{% endif %}（{{ '已归档' if item.status == 'archived' else '进行中' }}）</option>
           {% endfor %}
         </select>
         <button id="class-compare-submit" class="btn btn-primary mt-3" type="button">
@@ -72,7 +72,7 @@
     rows.forEach(function (row) {
       var tr = document.createElement('tr');
       [
-        row.class_name,
+        row.class_label,
         row.student_count,
         displayMetric(row.avg_attendance_rate, '%'),
         displayMetric(row.avg_practice_score, ''),
@@ -90,13 +90,13 @@
 
   function renderChart(rows) {
     chart.setOption({
-      tooltip: { trigger: 'axis' },
+      tooltip: { trigger: 'axis', renderMode: 'richText' },
       legend: { top: 0 },
       grid: { left: 50, right: 25, top: 50, bottom: 70 },
       xAxis: {
         type: 'category',
         axisLabel: { interval: 0, rotate: rows.length > 3 ? 25 : 0 },
-        data: rows.map(function (row) { return row.class_name; })
+        data: rows.map(function (row) { return row.class_label; })
       },
       yAxis: { type: 'value', min: 0, max: 100, name: '百分比 / 分数' },
       series: [

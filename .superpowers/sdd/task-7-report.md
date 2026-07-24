@@ -83,3 +83,47 @@ git diff --check
 - API 在任何指标查询前完成全部班级存在性校验，避免部分结果。
 - GET 路由继续受全局登录守卫保护；没有新增状态写入或 CSRF 豁免。
 - 未发现未解决的功能或安全问题。
+
+## Fix Review
+
+### 审查问题修复
+
+1. 对比 API 改为读取每一个原始 `class_id`，在调用服务前严格拒绝空值、非 ASCII 十进制、负数、零、超过 32 位数据库整数范围以及超长数字。
+2. Controller 与 `ClassComparisonService` 均按首次出现顺序对 ID 去重；`[1, 2, 1]` 只聚合 1、2，各指标仓储只调用一次。
+3. 新增 `class_label`，格式为“班级名（学期）”；页面选项、数值表和图表统一使用该标签。
+4. 服务端选项继续由 Jinja 转义，表格使用 `textContent`，ECharts tooltip 固定为画布 `richText` 模式，避免恶意班级名/学期经 HTML tooltip 解释。
+
+### Fix RED 证据
+
+```text
+.venv\Scripts\python.exe -m pytest tests/test_class_comparison.py -q
+10 failed, 4 passed in 16.25s
+```
+
+失败准确覆盖：无效参数被 `getlist(type=int)` 静默丢弃、重复 ID 产生 `[1, 2, 1]`、缺失 `class_label`、页面未显示学期。
+
+超长 ID 单独 RED：
+
+```text
+ValueError: Exceeds the limit (4300 digits) for integer string conversion
+1 failed, 6 passed in 9.07s
+```
+
+ECharts 安全模式单独 RED：
+
+```text
+FAILED: assert "renderMode: 'richText'" in page
+1 failed in 1.15s
+```
+
+### Fix GREEN 证据
+
+```text
+.venv\Scripts\python.exe -m pytest tests/test_class_comparison.py -q
+15 passed in 18.75s
+
+.venv\Scripts\python.exe -m pytest -q
+136 passed in 123.79s (0:02:03)
+```
+
+新增覆盖包括混合有效/无效 ID、5000 位超长 ID、无下游服务/指标调用、有序去重且不重复查询、同名不同学期标签，以及班级名/学期的 XSS 安全渲染。

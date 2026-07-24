@@ -6,6 +6,7 @@ from services.class_comparison import ClassComparisonService, ClassNotFoundError
 
 
 classes_bp = Blueprint('classes', __name__)
+MAX_CLASS_ID = 2_147_483_647
 
 
 def _payload():
@@ -35,7 +36,22 @@ def compare_page():
 
 @classes_bp.get('/api/classes/compare')
 def compare_classes():
-    class_ids = request.args.getlist('class_id', type=int)
+    raw_class_ids = request.args.getlist('class_id')
+    class_ids = []
+    seen = set()
+    for raw_class_id in raw_class_ids:
+        if (
+            len(raw_class_id) > 10
+            or not raw_class_id.isascii()
+            or not raw_class_id.isdecimal()
+        ):
+            return jsonify({'error': 'invalid_class_id'}), 400
+        class_id = int(raw_class_id)
+        if class_id < 1 or class_id > MAX_CLASS_ID:
+            return jsonify({'error': 'invalid_class_id'}), 400
+        if class_id not in seen:
+            seen.add(class_id)
+            class_ids.append(class_id)
     try:
         return jsonify(ClassComparisonService.compare(class_ids))
     except ClassNotFoundError as error:

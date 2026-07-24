@@ -17,7 +17,8 @@ class ClassNotFoundError(ValueError):
 class ClassComparisonService:
     @staticmethod
     def compare(class_ids: list[int]) -> list[dict]:
-        if len(set(class_ids)) < 2:
+        class_ids = list(dict.fromkeys(class_ids))
+        if len(class_ids) < 2:
             raise ValueError('至少选择两个不同班级')
 
         classes_by_id = {
@@ -30,6 +31,7 @@ class ClassComparisonService:
 
         rows = []
         for class_id in class_ids:
+            class_info = classes_by_id[class_id]
             behavior = BehaviorRepository.get_statistics(class_id)
             practice = PracticeAnalyzer(class_id).get_class_statistics()
             knowledge = KnowledgeRepository.get_knowledge_statistics(class_id)
@@ -42,7 +44,11 @@ class ClassComparisonService:
             warning_count = warnings['warning_student_count']
             rows.append({
                 'class_id': class_id,
-                'class_name': classes_by_id[class_id].class_name,
+                'class_name': class_info.class_name,
+                'class_label': (
+                    f'{class_info.class_name}（{class_info.term}）'
+                    if class_info.term else class_info.class_name
+                ),
                 'student_count': student_count,
                 'avg_attendance_rate': behavior['avg_attendance_rate'],
                 'avg_practice_score': practice['avg_experiment_score'],
