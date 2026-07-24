@@ -5,7 +5,7 @@
 {% block content %}
 <div class="content-header">
     <div class="container-fluid">
-        <h1 class="m-0">知识点分析</h1>
+        <h1 class="m-0">{{ active_class.class_name }} · 知识点分析</h1>
     </div>
 </div>
 
@@ -149,7 +149,7 @@ $(function() {
         $.get('/api/knowledge/point-summary', function(data) {
             var html = '';
             if (data.length === 0) {
-                html = '<tr><td colspan="8" class="text-center">暂无按知识点汇总数据</td></tr>';
+                html = currentClassEmptyRow(8);
             } else {
                 data.forEach(function(item, index) {
                     var masteryClass = item.mastery_rate < 40 ? 'text-danger' :
@@ -177,7 +177,7 @@ $(function() {
         $.get('/api/knowledge/statistics', function(data) {
             var html = '';
             if (data.length === 0) {
-                html = '<tr><td colspan="7" class="text-center">暂无数据</td></tr>';
+                html = currentClassEmptyRow(7);
             } else {
                 data.forEach(function(item, index) {
                     var rateClass = item.avg_mastery_rate < 40 ? 'text-danger' : 
@@ -223,7 +223,7 @@ $(function() {
         }).done(function(data) {
             var html = '';
             if (!data || data.length === 0) {
-                html = '<tr><td colspan="5" class="text-center">暂无学生数据</td></tr>';
+                html = currentClassEmptyRow(5);
             } else {
                 data.forEach(function(item) {
                     var levelClass = masteryLevelClass(item.mastery_level);
@@ -246,9 +246,14 @@ $(function() {
     }
     
     function loadHeatmap() {
-        var chart = echarts.init(document.getElementById('heatmap-chart'));
+        var chart;
         
         $.get('/api/knowledge/heatmap?student_limit=40&knowledge_limit=20', function(data) {
+            if (!data.data || data.data.length === 0) {
+                renderCurrentClassEmptyChart('#heatmap-chart');
+                return;
+            }
+            chart = echarts.init(document.getElementById('heatmap-chart'));
             chart.setOption({
                 tooltip: {
                     position: 'top',
@@ -294,7 +299,7 @@ $(function() {
             });
         });
         
-        $(window).resize(function() { chart.resize(); });
+        $(window).resize(function() { if (chart) { chart.resize(); } });
     }
 });
 </script>

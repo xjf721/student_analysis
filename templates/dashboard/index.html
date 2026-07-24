@@ -5,7 +5,7 @@
 {% block content %}
 <div class="content-header">
     <div class="container-fluid">
-        <h1 class="m-0">首页概览</h1>
+        <h1 class="m-0">{{ active_class.class_name }} · 首页概览</h1>
     </div>
 </div>
 
@@ -166,13 +166,21 @@ $(function() {
             $('#warning-count').text(data.warning_count);
             $('#high-risk-count').text(data.high_risk_count);
             $('#weak-knowledge').text(data.weak_knowledge_count);
+            if (!data.total_students) {
+                renderCurrentClassEmptyChart('#radar-chart');
+                renderCurrentClassEmptyChart('#heatmap-chart');
+            }
         });
     }
     
     function loadRadarChart() {
-        var chart = echarts.init(document.getElementById('radar-chart'));
-        
+        var chart;
         $.get('/api/radar', function(data) {
+            if (!data.values || data.values.length === 0) {
+                renderCurrentClassEmptyChart('#radar-chart');
+                return;
+            }
+            chart = echarts.init(document.getElementById('radar-chart'));
             chart.setOption({
                 tooltip: {},
                 radar: {
@@ -189,12 +197,16 @@ $(function() {
         });
         
         $(window).resize(function() {
-            chart.resize();
+            if (chart) { chart.resize(); }
         });
     }
     
     function loadWarningRanking() {
         $.get('/api/warning-ranking', function(data) {
+            if (data.length === 0) {
+                $('#warning-table').html(currentClassEmptyRow(5));
+                return;
+            }
             var html = '';
             if (data.length === 0) {
                 html = '<tr><td colspan="5" class="text-center">暂无风险学生</td></tr>';
@@ -216,9 +228,13 @@ $(function() {
     }
     
     function loadHeatmap() {
-        var chart = echarts.init(document.getElementById('heatmap-chart'));
-        
+        var chart;
         $.get('/api/heatmap', function(data) {
+            if (!data.data || data.data.length === 0) {
+                renderCurrentClassEmptyChart('#heatmap-chart');
+                return;
+            }
+            chart = echarts.init(document.getElementById('heatmap-chart'));
             chart.setOption({
                 tooltip: {
                     position: 'top',
@@ -268,12 +284,16 @@ $(function() {
         });
         
         $(window).resize(function() {
-            chart.resize();
+            if (chart) { chart.resize(); }
         });
     }
     
     function loadWeakKnowledge() {
         $.get('/api/knowledge-ranking', function(data) {
+            if (data.length === 0) {
+                $('#weak-knowledge-table').html(currentClassEmptyRow(2));
+                return;
+            }
             var html = '';
             if (data.length === 0) {
                 html = '<tr><td colspan="2" class="text-center">暂无数据</td></tr>';

@@ -5,7 +5,7 @@
 {% block content %}
 <div class="content-header">
     <div class="container-fluid">
-        <h1 class="m-0">学生列表</h1>
+        <h1 class="m-0">{{ active_class.class_name }} · 学生列表</h1>
     </div>
 </div>
 
@@ -71,7 +71,7 @@ $(function() {
         $.get(url, function(data) {
             var html = '';
             if (data.length === 0) {
-                html = '<tr><td colspan="7" class="text-center">暂无数据</td></tr>';
+                html = currentClassEmptyRow(7);
             } else {
                 data.forEach(function(student) {
                     var behaviorScore = student.behavior ? student.behavior.behavior_score : '--';

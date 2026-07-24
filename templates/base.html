@@ -116,6 +116,14 @@
     
     <!-- Content Wrapper -->
     <div class="content-wrapper">
+        {% if active_class %}
+        <div class="content-header pb-0">
+            <div class="container-fluid d-flex justify-content-between align-items-center">
+                <div><span class="text-muted">当前班级</span> <strong>{{ active_class.class_name }}</strong></div>
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('classes.index') }}">切换班级</a>
+            </div>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </div>
     
@@ -138,6 +146,27 @@
     $('#active-class-selector').on('change', function () {
       if (this.value) {
         $.post('/api/classes/' + this.value + '/select', function (data) { location.href = data.redirect; });
+      }
+    });
+    window.currentClassEmptyState = function () {
+      return '<div class="text-center text-muted py-4">当前班级暂无数据，<a href="{{ url_for('import.import_page') }}">前往数据导入</a></div>';
+    };
+    window.currentClassEmptyRow = function (colspan) {
+      return '<tr><td colspan="' + colspan + '" class="text-center">当前班级暂无数据，<a href="{{ url_for('import.import_page') }}">前往数据导入</a></td></tr>';
+    };
+    window.renderCurrentClassEmptyChart = function (selector) {
+      var element = document.querySelector(selector);
+      var chart = element && echarts.getInstanceByDom(element);
+      if (chart) {
+        chart.dispose();
+      }
+      $(selector).html(window.currentClassEmptyState());
+    };
+    $(document).ajaxError(function(_event, xhr) {
+      if (xhr.status === 401) {
+        window.location.href = '/login';
+      } else if (xhr.status === 409 && xhr.responseJSON && xhr.responseJSON.error === 'active_class_required') {
+        window.location.href = '/classes';
       }
     });
 </script>

@@ -36,7 +36,7 @@
     <div class="container-fluid">
         <div class="row mb-2">
             <div class="col-sm-6">
-                <h1 class="m-0">学生画像</h1>
+                <h1 class="m-0">{{ active_class.class_name }} · 学生画像</h1>
             </div>
             <div class="col-sm-6 text-sm-right">
                 <a class="btn btn-info" href="/student/{{ student_id }}/overview">
@@ -375,7 +375,7 @@ $(function() {
         $.get('/api/student/' + studentId + '/weak-points', function(data) {
             var html = '';
             if (data.length === 0) {
-                html = '<tr><td colspan="3" class="text-center">暂无薄弱知识点</td></tr>';
+                html = currentClassEmptyRow(3);
             } else {
                 data.forEach(function(item) {
                     var levelClass = item.mastery_level === 0 ? 'badge-danger' : 'badge-warning';
