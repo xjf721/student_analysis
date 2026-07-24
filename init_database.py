@@ -10,19 +10,36 @@
 
 使用方法：
     python init_database.py          # 使用默认配置
-    python init_database.py --reset  # 重置数据库（删除所有数据）
+    python init_database.py --tables-only
+    python init_database.py --reset --confirm-reset DELETE-ALL-STUDENT-ANALYSIS-DATA
 """
 import argparse
+import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE
 import pymysql
-from app import create_app
-from models import db
+
+
+RESET_CONFIRMATION = 'DELETE-ALL-STUDENT-ANALYSIS-DATA'
+
+
+def validate_reset_confirmation(value: Optional[str]) -> bool:
+    """仅接受重建数据库所需的精确、非交互式确认短语。"""
+    return value == RESET_CONFIRMATION
+
+
+def load_app_dependencies():
+    """仅在参数校验完成且确需建表时加载会初始化数据库的应用模块。"""
+    from app import create_app
+    from models import db
+
+    return create_app, db
 
 
 def create_database() -> bool:
@@ -81,12 +98,7 @@ def reset_database() -> bool:
         是否成功
     """
     print(f"⚠ 警告：即将删除数据库 '{MYSQL_DATABASE}' 及其所有数据！")
-    confirm = input("确认删除？(yes/no): ")
-    
-    if confirm.lower() != 'yes':
-        print("已取消操作")
-        return False
-    
+
     try:
         connection = pymysql.connect(
             host=MYSQL_HOST,
@@ -128,15 +140,17 @@ def create_tables() -> bool:
     print("正在创建表结构...")
     
     try:
-        app = create_app('dev')
+        create_app, database = load_app_dependencies()
+        config_name = 'prod' if os.environ.get('FLASK_ENV') == 'prod' else 'dev'
+        app = create_app(config_name)
         
         with app.app_context():
             # 创建所有表
-            db.create_all()
+            database.create_all()
             
             # 验证表是否创建成功
             from sqlalchemy import inspect
-            inspector = inspect(db.engine)
+            inspector = inspect(database.engine)
             tables = inspector.get_table_names()
             
             print(f"✓ 已创建 {len(tables)} 个表:")
@@ -150,13 +164,20 @@ def create_tables() -> bool:
         return False
 
 
-def main():
+def main(argv=None):
     """主函数"""
     parser = argparse.ArgumentParser(description='数据库初始化工具')
-    parser.add_argument('--reset', action='store_true', help='重置数据库（删除所有数据）')
+    parser.add_argument('--reset', action='store_true', help='删除并重建数据库')
+    parser.add_argument(
+        '--confirm-reset',
+        help=f'重建时必须精确输入 {RESET_CONFIRMATION}',
+    )
     parser.add_argument('--tables-only', action='store_true', help='只创建表结构（不创建数据库）')
     
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    if args.reset and not validate_reset_confirmation(args.confirm_reset):
+        parser.error(f'--reset 必须同时提供 --confirm-reset {RESET_CONFIRMATION}')
     
     print("=" * 60)
     print("教学过程智能分析与预警平台 - 数据库初始化")

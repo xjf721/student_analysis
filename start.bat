@@ -1,13 +1,7 @@
 @echo off
 chcp 65001 >nul
-setlocal enabledelayedexpansion
-
-:: ============================================================
-::  教学过程智能分析与预警平台 - 一键启动脚本
-::  功能：激活虚拟环境 → 检查数据库 → 初始化 → 启动服务
-:: ============================================================
-
-title 学生画像分析平台 - 启动中...
+setlocal
+cd /d "%~dp0"
 
 echo.
 echo ============================================================
@@ -15,54 +9,44 @@ echo   教学过程智能分析与预警平台
 echo ============================================================
 echo.
 
-:: ---- 1. 定位虚拟环境 ----
-set VENV_DIR=venv
-if exist "%VENV_DIR%\Scripts\activate.bat" (
-    echo [1/4] 激活虚拟环境...
-    call "%VENV_DIR%\Scripts\activate.bat"
-    echo       虚拟环境已激活: %VENV_DIR%
-) else (
-    echo [1/4] 未找到虚拟环境，使用系统 Python
-    echo       提示: 运行 python -m venv venv 可创建虚拟环境
+:: 必需的登录凭据必须在任何数据库访问之前检查。
+if not defined ADMIN_USERNAME (
+    echo [错误] 缺少 ADMIN_USERNAME。请先设置管理员用户名。
+    exit /b 2
+)
+if not defined ADMIN_PASSWORD_HASH (
+    echo [错误] 缺少 ADMIN_PASSWORD_HASH。请使用 Werkzeug 生成密码哈希后设置。
+    exit /b 2
 )
 
-:: ---- 2. 检查 MySQL 连接 ----
-echo.
-echo [2/4] 检查 MySQL 数据库连接...
-python -c "import pymysql; pymysql.connect(host='127.0.0.1', port=3306, user='root', password='Root@123456', charset='utf8mb4').close(); print('       MySQL 连接正常')" 2>nul
-if %errorlevel% neq 0 (
-    echo       [警告] MySQL 连接失败，请确保 MySQL 服务已启动
-    echo       Docker 用户请运行: docker start mysql-container
-    echo.
-    choice /c yn /m "是否继续启动（跳过数据库检查）"
-    if errorlevel 2 exit /b 1
-) else (
-    :: ---- 3. 初始化数据库（如果需要） ----
-    echo.
-    echo [3/4] 初始化数据库表结构...
-    python init_database.py --tables-only 2>nul
-    if %errorlevel% equ 0 (
-        echo       数据库表结构就绪
-    ) else (
-        echo       表结构可能已存在，跳过
+:: 生产环境必须提供持久、高熵密钥；HTTPS 会话 Cookie 强制仅通过安全连接发送。
+if /I "%FLASK_ENV%"=="prod" (
+    if not defined SECRET_KEY (
+        echo [错误] 生产环境缺少 SECRET_KEY。请设置独立的高熵随机密钥。
+        exit /b 2
     )
+    set "SESSION_COOKIE_SECURE=true"
 )
 
-:: ---- 4. 启动 Flask 开发服务器 ----
-echo.
-echo [4/4] 启动 Flask 开发服务器...
-echo.
-echo ============================================================
-echo   服务地址: http://localhost:5000
-echo   按 Ctrl+C 停止服务
-echo ============================================================
-echo.
+set "PYTHON_CMD=python"
+if exist ".venv\Scripts\python.exe" set "PYTHON_CMD=.venv\Scripts\python.exe"
+if exist "venv\Scripts\python.exe" set "PYTHON_CMD=venv\Scripts\python.exe"
 
-python app.py
-
-:: 如果异常退出，暂停以便查看错误信息
-if %errorlevel% neq 0 (
-    echo.
-    echo [错误] 服务异常退出，错误码: %errorlevel%
-    pause
+echo [1/3] 检查 MySQL 连接...
+"%PYTHON_CMD%" -c "import pymysql; from config import MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD; pymysql.connect(host=MYSQL_HOST, port=MYSQL_PORT, user=MYSQL_USER, password=MYSQL_PASSWORD, charset='utf8mb4').close(); print('      MySQL 连接正常')"
+if errorlevel 1 (
+    echo [错误] MySQL 连接失败。请检查 MYSQL_HOST、MYSQL_PORT、MYSQL_USER 和 MYSQL_PASSWORD。
+    exit /b 1
 )
+
+echo [2/3] 创建缺失的数据库表（不会删除或重建数据库）...
+"%PYTHON_CMD%" init_database.py --tables-only
+if errorlevel 1 (
+    echo [错误] 数据库表初始化失败。
+    exit /b 1
+)
+
+echo [3/3] 启动 Flask 服务...
+echo       服务地址: http://localhost:5000
+"%PYTHON_CMD%" app.py
+exit /b %errorlevel%
