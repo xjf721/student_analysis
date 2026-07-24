@@ -37,19 +37,19 @@ def test_legacy_filename_duplicate_lookup_remains_supported(app, two_classes):
         assert ImportRecord.is_imported('legacy.xlsx')
 
 
-def test_legacy_importer_creates_class_scoped_record_and_preserves_other_class(app, two_classes, tmp_path):
-    _, second_id = two_classes
+def test_explicit_importer_creates_class_scoped_record_and_preserves_other_class(app, two_classes, tmp_path):
+    first_id, second_id = two_classes
     file_path = Path(tmp_path) / '2026春-青年1班-雨课堂-legacy.xlsx'
     file_path.write_bytes(b'legacy import content')
 
     with app.app_context():
-        importer = LegacyImporter(str(file_path))
+        importer = LegacyImporter(str(file_path), first_id, 'admin')
         importer.parsed_data = [{'value': 1}]
 
         saved, _ = importer.save()
         assert saved
         first_record = importer.import_record
-        assert first_record.class_id is not None
+        assert first_record.class_id == first_id
         assert len(first_record.file_hash) == 64
         assert first_record.uploaded_by == 'admin'
         assert ImportRecord.is_imported(importer.filename)
@@ -129,7 +129,7 @@ def test_default_csrf_rejects_existing_post_routes_without_a_token(tmp_path):
         db.drop_all()
         db.create_all()
 
-    response = test_app.test_client().post('/api/import/clear-all')
+    response = test_app.test_client().post('/api/import/analyze')
 
     assert response.status_code == 400
 

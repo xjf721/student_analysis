@@ -9,22 +9,14 @@
 - 导入日志
 - 一键重新分析
 """
-from flask import Blueprint, render_template, jsonify, request, current_app
+from flask import Blueprint, render_template, jsonify, request, current_app, session
 from werkzeug.utils import secure_filename
 from pathlib import Path
+from uuid import uuid4
 
 from models import (
-    db,
     ImportRecord,
-    Student,
     ClassInfo,
-    StudentBehavior,
-    StudentPractice,
-    StudentAssignmentDetail,
-    StudentAssignmentChallenge,
-    StudentKnowledgeMastery,
-    KnowledgePointSummary,
-    WarningRecord,
 )
 from services.importers import (
     RainClassImporter,
@@ -34,7 +26,8 @@ from services.importers import (
     EducoderImporter,
     EducoderActivityImporter,
 )
-from services.importers.parser_utils import detect_file_type
+from services.importers.base_importer import calculate_file_hash
+from services.importers.parser_utils import detect_file_type, extract_class_info_from_filename
 from services.analysis import BehaviorAnalyzer, KnowledgeAnalyzer, PracticeAnalyzer, WarningEngine
 from services.class_context import get_active_class_id, require_active_class
 
@@ -60,12 +53,52 @@ def resolve_import_folder(folder: str) -> Path:
     return folder_path.resolve()
 
 
+def _get_target_class(payload) -> tuple[ClassInfo, object]:
+    """Resolve an explicit active target class from form or JSON data."""
+    raw_class_id = payload.get('class_id')
+    try:
+        class_id = int(raw_class_id)
+    except (TypeError, ValueError):
+        return None, (jsonify({
+            'error': 'invalid_target_class',
+            'message': '请选择有效的目标班级',
+        }), 400)
+
+    target = ClassInfo.query.filter_by(id=class_id, status='active').first()
+    if target is None:
+        return None, (jsonify({
+            'error': 'invalid_target_class',
+            'message': '目标班级不存在或已归档',
+        }), 400)
+    return target, None
+
+
+def _class_mismatch(filename: str, target_class: ClassInfo):
+    detected = extract_class_info_from_filename(filename)
+    detected_name = (detected.get('class_name') or '').strip()
+    if detected_name and detected_name != target_class.class_name.strip():
+        return {
+            'error': 'class_name_mismatch',
+            'message': '文件名中的班级与目标班级不一致',
+            'selected_class': target_class.class_name,
+            'detected_class': detected_name,
+        }
+    return None
+
+
 @import_bp.route('/import')
 @require_active_class
 def import_page():
     """数据导入页面"""
     class_id = get_active_class_id()
-    return render_template('import/index.html')
+    classes = ClassInfo.query.filter_by(status='active').order_by(ClassInfo.class_name).all()
+    requested_id = request.args.get('class_id', type=int)
+    selected_id = requested_id if any(item.id == requested_id for item in classes) else class_id
+    return render_template(
+        'import/index.html',
+        classes=classes,
+        selected_class_id=selected_id,
+    )
 
 
 @import_bp.route('/api/import/upload', methods=['POST'])
@@ -77,7 +110,9 @@ def upload_file():
     Returns:
         导入结果
     """
-    class_id = get_active_class_id()
+    target_class, error_response = _get_target_class(request.form)
+    if error_response:
+        return error_response
     # 检查文件是否存在
     if 'file' not in request.files:
         return jsonify({'success': False, 'message': '没有选择文件'}), 400
@@ -92,6 +127,10 @@ def upload_file():
     
     # 保存原始文件名（用于类型检测）
     original_filename = file.filename
+
+    mismatch = _class_mismatch(original_filename, target_class)
+    if mismatch and request.form.get('confirm_class_mismatch') != 'true':
+        return jsonify(mismatch), 409
     
     # 保存文件（使用安全的文件名）
     filename = secure_filename(file.filename)
@@ -104,19 +143,27 @@ def upload_file():
     upload_folder = Path(current_app.config['UPLOAD_FOLDER'])
     upload_folder.mkdir(parents=True, exist_ok=True)
     
-    file_path = upload_folder / filename
+    file_path = upload_folder / f'{uuid4().hex}_{filename}'
     file.save(file_path)
+    file_hash = calculate_file_hash(file_path)
     
     # 自动检测文件类型并选择导入器（使用原始文件名检测）
     import_type = request.form.get('type', '').strip()
     
     try:
-        result = import_data(str(file_path), import_type, original_filename)
+        result = import_data(
+            str(file_path),
+            target_class.id,
+            session['admin_username'],
+            import_type=import_type,
+            original_filename=original_filename,
+            file_hash=file_hash,
+        )
         
         # 导入成功后自动触发分析
         if result.get('success'):
             try:
-                analysis_result = run_all_analysis(result['class_id'])
+                analysis_result = run_all_analysis(target_class.id)
                 result['analysis'] = analysis_result
             except Exception as e:
                 result['analysis_warning'] = f'自动分析失败: {e}'
@@ -138,8 +185,10 @@ def import_folder():
     Returns:
         批量导入结果
     """
-    class_id = get_active_class_id()
     payload = request.get_json(silent=True) or request.form
+    target_class, error_response = _get_target_class(payload)
+    if error_response:
+        return error_response
     folder = payload.get('folder', 'new-datas')
     folder_path = resolve_import_folder(folder)
 
@@ -178,8 +227,29 @@ def import_folder():
     total_imported_rows = 0
 
     for file_path in excel_files:
+        mismatch = _class_mismatch(file_path.name, target_class)
+        if mismatch and str(payload.get('confirm_class_mismatch', '')).lower() != 'true':
+            result = {
+                **mismatch,
+                'success': False,
+                'pending_confirmation': True,
+                'errors': [mismatch['message']],
+                'warnings': [],
+                'imported_count': 0,
+            }
+            result['filename'] = file_path.name
+            results.append(result)
+            failed_files += 1
+            continue
+
         try:
-            result = import_data(str(file_path), '', file_path.name)
+            result = import_data(
+                str(file_path),
+                target_class.id,
+                session['admin_username'],
+                original_filename=file_path.name,
+                file_hash=calculate_file_hash(file_path),
+            )
         except Exception as e:
             result = {
                 'success': False,
@@ -210,36 +280,31 @@ def import_folder():
         'results': results
     }
 
-    imported_class_ids = sorted({
-        item['class_id'] for item in results
-        if item.get('success') and item.get('class_id')
-    })
-    if imported_class_ids:
+    if imported_files:
         try:
-            response['analysis'] = {
-                str(class_id): run_all_analysis(class_id)
-                for class_id in imported_class_ids
-            }
+            response['analysis'] = run_all_analysis(target_class.id)
         except Exception as e:
             response['analysis_warning'] = f'自动分析失败: {e}'
 
     return jsonify(response)
 
 
-def import_data(file_path: str, import_type: str = '', original_filename: str = '') -> dict:
+def import_data(file_path: str, class_id: int, uploaded_by: str,
+                import_type: str = '', original_filename: str = '',
+                file_hash: str = None) -> dict:
     """
     导入数据
     
     Args:
         file_path: 文件路径
+        class_id: 用户明确选择的目标班级
+        uploaded_by: 执行导入的管理员
         import_type: 导入类型（可选，自动检测）
         original_filename: 原始文件名（用于类型检测）
         
     Returns:
         导入结果
     """
-    import pandas as pd
-    
     # 使用原始文件名进行检测（保留中文）
     filename = original_filename.lower() if original_filename else Path(file_path).name.lower()
     
@@ -278,29 +343,43 @@ def import_data(file_path: str, import_type: str = '', original_filename: str = 
     # 雨课堂系列
     if import_type == '雨课堂' or '雨课堂' in filename:
         if import_type == '雨课堂-知识点汇总' or '按知识点汇总' in filename or ('知识点' in filename and '汇总' in filename and '学生' not in filename):
-            importer = RainClassKnowledgePointSummaryImporter(file_path, display_filename=original_filename)
+            importer = RainClassKnowledgePointSummaryImporter(
+                file_path, class_id, uploaded_by, original_filename, file_hash
+            )
             import_type = '雨课堂-知识点汇总'
         elif '学生汇总' in filename or '按学生汇总' in filename or '汇总' in filename:
-            importer = RainClassSummaryImporter(file_path, display_filename=original_filename)
+            importer = RainClassSummaryImporter(
+                file_path, class_id, uploaded_by, original_filename, file_hash
+            )
             import_type = '雨课堂-学生汇总'
         elif '知识图谱' in filename or '明细' in filename:
-            importer = RainClassKnowledgeDetailImporter(file_path, display_filename=original_filename)
+            importer = RainClassKnowledgeDetailImporter(
+                file_path, class_id, uploaded_by, original_filename, file_hash
+            )
             import_type = '雨课堂-知识图谱明细'
         else:
-            importer = RainClassImporter(file_path, display_filename=original_filename)
+            importer = RainClassImporter(
+                file_path, class_id, uploaded_by, original_filename, file_hash
+            )
             import_type = '雨课堂'
     
     # 头歌系列
     elif import_type == '头歌' or '头歌' in filename or 'educoder' in filename:
         if '活跃度' in filename:
-            importer = EducoderActivityImporter(file_path, display_filename=original_filename)
+            importer = EducoderActivityImporter(
+                file_path, class_id, uploaded_by, original_filename, file_hash
+            )
             import_type = '头歌-活跃度'
         elif '作业成绩' in filename:
             from services.importers.educoder_importer import EducoderAssignmentImporter
-            importer = EducoderAssignmentImporter(file_path, display_filename=original_filename)
+            importer = EducoderAssignmentImporter(
+                file_path, class_id, uploaded_by, original_filename, file_hash
+            )
             import_type = '头歌-作业成绩'
         else:
-            importer = EducoderImporter(file_path, display_filename=original_filename)
+            importer = EducoderImporter(
+                file_path, class_id, uploaded_by, original_filename, file_hash
+            )
             import_type = '头歌'
     
     else:
@@ -363,51 +442,6 @@ def run_analysis():
         }), 500
 
 
-@import_bp.route('/api/import/clear-all', methods=['POST'])
-@require_active_class
-def clear_all_data():
-    """
-    一键清空所有已导入和已分析的数据。
-
-    仅清空数据库数据，不删除磁盘上的Excel原始文件。
-    """
-    class_id = get_active_class_id()
-    try:
-        delete_order = [
-            WarningRecord,
-            StudentAssignmentChallenge,
-            StudentAssignmentDetail,
-            StudentKnowledgeMastery,
-            KnowledgePointSummary,
-            StudentBehavior,
-            StudentPractice,
-            Student,
-            ClassInfo,
-            ImportRecord,
-        ]
-        counts = {}
-
-        for model in delete_order:
-            counts[model.__tablename__] = db.session.query(model).delete(synchronize_session=False)
-
-        db.session.commit()
-
-        total_deleted = sum(counts.values())
-        return jsonify({
-            'success': True,
-            'message': f'已清空数据库数据，共删除 {total_deleted} 条记录',
-            'counts': counts,
-            'total_deleted': total_deleted
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            'success': False,
-            'message': f'清空数据失败: {str(e)}'
-        }), 500
-
-
 def run_all_analysis(class_id: int) -> dict:
     """
     执行全量分析（内部函数，供自动分析和手动分析共用）
@@ -417,46 +451,29 @@ def run_all_analysis(class_id: int) -> dict:
     Returns:
         分析结果字典
     """
+    analyzers = {
+        'behavior': BehaviorAnalyzer(class_id),
+        'practice': PracticeAnalyzer(class_id),
+        'knowledge': KnowledgeAnalyzer(class_id),
+        'warning': WarningEngine(class_id),
+    }
     results = {}
-    
-    # 1. 行为分析
-    try:
-        behavior_analyzer = BehaviorAnalyzer(class_id)
-        results['behavior'] = behavior_analyzer.analyze_all()
-    except Exception as e:
-        results['behavior'] = {'success': False, 'message': str(e)}
-    
-    # 2. 实践分析
-    try:
-        practice_analyzer = PracticeAnalyzer(class_id)
-        results['practice'] = practice_analyzer.analyze_all()
-    except Exception as e:
-        results['practice'] = {'success': False, 'message': str(e)}
-    
-    # 3. 知识点分析
-    try:
-        knowledge_analyzer = KnowledgeAnalyzer(class_id)
-        results['knowledge'] = knowledge_analyzer.analyze_all()
-    except Exception as e:
-        results['knowledge'] = {'success': False, 'message': str(e)}
-    
-    # 4. 风险预警
-    try:
-        warning_engine = WarningEngine(class_id)
-        results['warning'] = warning_engine.analyze_all()
-    except Exception as e:
-        results['warning'] = {'success': False, 'message': str(e)}
+    for name, analyzer in analyzers.items():
+        try:
+            results[name] = analyzer.analyze_all()
+        except Exception as exc:
+            results[name] = {'success': False, 'message': str(exc)}
     
     # 汇总统计
     analyzed_count = sum(
-        r.get('analyzed_count', 0) 
-        for r in results.values() 
-        if isinstance(r, dict) and r.get('success', True)
+        item.get('analyzed_count', 0)
+        for item in results.values()
+        if item.get('success', True)
     )
     results['summary'] = {
-        'success': True,
+        'success': all(item.get('success', True) for item in results.values()),
         'total_analyzed': analyzed_count,
-        'message': f'共触发 {len(results)} 项分析，汇总分析 {analyzed_count} 条数据'
+        'message': f'班级 {class_id} 共分析 {analyzed_count} 条数据',
     }
     
     return results

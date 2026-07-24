@@ -223,7 +223,6 @@ def test_analyzers_require_class_id(analyzer, class_id):
         ('post', '/api/import/folder'),
         ('get', '/api/import/records'),
         ('post', '/api/import/analyze'),
-        ('post', '/api/import/clear-all'),
         ('get', '/api/import/types'),
     ],
 )

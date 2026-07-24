@@ -9,7 +9,6 @@ from typing import Dict, List, Tuple, Any, Optional
 from pathlib import Path
 import hashlib
 import pandas as pd
-from flask import current_app
 
 from models import db, ImportRecord
 from .parser_utils import extract_class_info_from_filename, read_excel_smart
@@ -34,14 +33,18 @@ class BaseImporter(ABC):
     4. save() - 数据保存
     """
     
-    def __init__(self, file_path: str, display_filename: str = None):
+    def __init__(self, file_path: str, class_id: int, uploaded_by: str,
+                 display_filename: str = None, file_hash: str = None):
         """
         初始化导入器
         
         Args:
             file_path: 导入文件路径
-            display_filename: 用于去重判断的文件名（如原始中文文件名），
+            class_id: 用户明确选择的目标班级ID
+            uploaded_by: 执行导入的管理员用户名
+            display_filename: 用于展示的原始文件名（如原始中文文件名），
                               若不提供则使用 file_path 的文件名
+            file_hash: 可复用的SHA-256文件摘要
         """
         self.file_path = Path(file_path)
         self.display_filename = display_filename or self.file_path.name
@@ -51,12 +54,12 @@ class BaseImporter(ABC):
         self.warnings: List[str] = []
         self.parsed_data: List[Dict] = []
         self.import_record: ImportRecord = None
-        self.class_id: Optional[int] = None
-        self.file_hash: Optional[str] = None
-        self.uploaded_by: Optional[str] = None
+        self.class_id = class_id
+        self.file_hash = file_hash or calculate_file_hash(self.file_path)
+        self.uploaded_by = uploaded_by
         
-        # 从文件名提取班级信息（使用原始文件名以保留中文）
-        self.class_info = extract_class_info_from_filename(self.display_filename)
+        # 文件名中的班级仅供控制器提示冲突，绝不决定数据归属。
+        self.detected_class_info = extract_class_info_from_filename(self.display_filename)
         
     @property
     @abstractmethod
@@ -106,7 +109,7 @@ class BaseImporter(ABC):
             return False, errors
         
         try:
-            self._prepare_legacy_import_context()
+            self._get_target_class_id()
         except ValueError as exc:
             errors.append(str(exc))
             return False, errors
@@ -192,18 +195,17 @@ class BaseImporter(ABC):
             (是否保存成功, 消息)
         """
         if not self.parsed_data:
+            self._record_failed_import('没有数据需要保存')
             return False, '没有数据需要保存'
         
         try:
-            self._prepare_legacy_import_context()
+            self._get_target_class_id()
 
             # 清理旧导入记录（支持重新导入）
             ImportRecord.query.filter_by(
                 class_id=self.class_id,
                 file_hash=self.file_hash,
             ).delete(synchronize_session=False)
-            db.session.commit()
-            
             # 创建新的导入记录
             self.import_record = ImportRecord(
                 class_id=self.class_id,
@@ -213,27 +215,29 @@ class BaseImporter(ABC):
                 import_type=self.import_type,
                 import_status='进行中'
             )
-            self.import_record.save()
+            db.session.add(self.import_record)
+            db.session.flush()
             
             # 调用子类的保存逻辑
             success_count = self._save_to_db()
             
-            # 检查是否有保存错误
+            # 任一行保存失败都回滚整个文件，避免半成功导入。
             if self.errors:
-                self.warnings.append(f'保存过程中有 {len(self.errors)} 条错误')
+                raise ValueError('; '.join(self.errors))
             
             # 更新导入记录
-            self.import_record.mark_success(success_count)
-            
             if success_count == 0:
                 error_detail = '; '.join(self.errors[:3]) if self.errors else '未知原因'
-                return False, f'保存失败: 成功0条, 错误: {error_detail}'
+                raise ValueError(f'成功0条, 错误: {error_detail}')
+
+            self.import_record.import_status = '成功'
+            self.import_record.success_count = success_count
+            db.session.commit()
             
             return True, f'成功导入 {success_count} 条记录'
             
         except Exception as e:
-            if self.import_record:
-                self.import_record.mark_failed(str(e))
+            self._record_failed_import(str(e))
             return False, f'保存失败: {str(e)}'
     
     @abstractmethod
@@ -266,17 +270,24 @@ class BaseImporter(ABC):
         if not valid:
             result['errors'] = errors if errors else ['数据校验失败（无详细错误）']
             result['message'] = '数据校验失败'
+            self._record_failed_import('; '.join(result['errors']))
             return result
         
         # 2. 清洗
-        _, warnings = self.clean()
+        cleaned, warnings = self.clean()
         result['warnings'] = warnings
+        if not cleaned:
+            result['errors'] = warnings if warnings else ['数据清洗失败']
+            result['message'] = '数据清洗失败'
+            self._record_failed_import('; '.join(result['errors']))
+            return result
         
         # 3. 解析
         parsed, parse_errors = self.parse()
         if not parsed:
             result['errors'] = parse_errors if parse_errors else [f'数据解析失败: df有{len(self.df)}行但无有效数据']
             result['message'] = '数据解析失败'
+            self._record_failed_import('; '.join(result['errors']))
             return result
         
         # 4. 保存
@@ -318,50 +329,43 @@ class BaseImporter(ABC):
         
         return missing
     
-    def _get_or_create_class(self) -> Optional[int]:
-        """
-        获取或创建班级
-        
-        Returns:
-            班级ID，如果无法创建则返回None
-        """
-        if self.class_id is not None:
-            return self.class_id
-
+    def _get_target_class_id(self) -> int:
+        """校验并返回用户明确选择的活动班级。"""
         from models import ClassInfo
-        
-        class_name = self.class_info.get('class_name')
-        if not class_name:
-            return None
-        
-        # 查找现有班级
-        existing_class = ClassInfo.get_by_name(class_name)
-        if existing_class:
-            self.class_id = existing_class.id
-            return self.class_id
-        
-        # 创建新班级
-        new_class = ClassInfo(
-            class_name=class_name,
-            term=self.class_info.get('term'),
-            teacher_name=self.class_info.get('teacher_name')
+
+        item = ClassInfo.query.filter_by(id=self.class_id, status='active').first()
+        if item is None:
+            raise ValueError('目标班级不存在或已归档')
+        return item.id
+
+    def _find_target_student(self, student_no: str):
+        """查找当前班学生，并拒绝复用其他班级的同号学生。"""
+        from models import Student
+
+        student = Student.find_by_student_no_flex(student_no)
+        if student is not None and student.class_id != self.class_id:
+            raise ValueError(
+                f'学号 {student_no} 已属于其他班级，不能导入到当前班级'
+            )
+        return student
+
+    def _record_failed_import(self, error_message: str) -> None:
+        """回滚当前文件的数据变更，再单独持久化失败审计记录。"""
+        db.session.rollback()
+        self.import_record = ImportRecord(
+            class_id=self.class_id,
+            filename=self.filename,
+            file_hash=self.file_hash,
+            uploaded_by=self.uploaded_by,
+            import_type=self.import_type,
+            import_status='失败',
+            error_message=error_message,
         )
-        new_class.save()
-        self.class_id = new_class.id
-        
-        self.warnings.append(f'自动创建班级: {class_name}')
-        return self.class_id
-
-    def _prepare_legacy_import_context(self) -> int:
-        class_id = self._get_or_create_class()
-        if class_id is None:
-            raise ValueError('无法从文件名解析班级，无法创建导入记录')
-
-        if self.file_hash is None:
-            self.file_hash = calculate_file_hash(self.file_path)
-        if self.uploaded_by is None:
-            self.uploaded_by = current_app.config.get('ADMIN_USERNAME') or 'legacy-import'
-        return class_id
+        try:
+            db.session.add(self.import_record)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
     
     def _safe_get_value(self, row, column: str, default: Any = 0) -> Any:
         """

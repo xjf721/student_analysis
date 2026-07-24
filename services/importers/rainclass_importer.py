@@ -123,25 +123,22 @@ class RainClassSummaryImporter(BaseImporter):
         success_count = 0
         
         # 获取或创建班级
-        class_id = self._get_or_create_class()
+        class_id = self._get_target_class_id()
 
         for data in self.parsed_data:
             try:
-                student = Student.find_by_student_no_flex(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
                         name=data['name'],
                         class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
                 else:
                     if data['name'] and student.name != data['name']:
                         student.name = data['name']
-                    
-                    # 关联班级（如果学生还没有班级）
-                    if class_id and not student.class_id:
-                        student.class_id = class_id
                 
                 # 更新或创建知识点掌握概览记录
                 # '__汇总__' 为内部占位符，存储学生在所有知识点上的整体掌握率，
@@ -172,7 +169,7 @@ class RainClassSummaryImporter(BaseImporter):
             except Exception as e:
                 self.errors.append(f'保存学生{data.get("student_no", "未知")}失败: {str(e)}')
         
-        db.session.commit()
+        db.session.flush()
         return success_count
 
 
@@ -212,7 +209,7 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
         
         from models import ImportRecord
         try:
-            self._prepare_legacy_import_context()
+            self._get_target_class_id()
         except ValueError as exc:
             errors.append(str(exc))
             return False, errors
@@ -346,7 +343,7 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
         success_count = 0
         
         # 获取或创建班级
-        class_id = self._get_or_create_class()
+        class_id = self._get_target_class_id()
 
         # 重新导入时先清掉旧的明细记录，避免历史版本把缺失掌握率按 0 保存后继续参与统计。
         old_query = StudentKnowledgeMastery.query.filter(
@@ -359,17 +356,18 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
         
         for data in self.parsed_data:
             try:
-                student = Student.find_by_student_no_flex(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
                         name=data['name'],
                         class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
                 else:
-                    if class_id and not student.class_id:
-                        student.class_id = class_id
+                    if data['name'] and student.name != data['name']:
+                        student.name = data['name']
                 
                 mastery = StudentKnowledgeMastery.get_student_knowledge(
                     student.id, data['knowledge_name']
@@ -396,7 +394,7 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
             except Exception as e:
                 self.errors.append(f'保存知识点数据失败: {str(e)}')
         
-        db.session.commit()
+        db.session.flush()
         return success_count
 
 
@@ -481,9 +479,12 @@ class RainClassKnowledgePointSummaryImporter(BaseImporter):
 
     def _save_to_db(self) -> int:
         success_count = 0
-        class_id = self._get_or_create_class()
+        class_id = self._get_target_class_id()
 
-        old_query = KnowledgePointSummary.query.filter_by(source_file=self.filename)
+        old_query = KnowledgePointSummary.query.filter_by(
+            class_id=class_id,
+            source_file=self.filename,
+        )
         old_query.delete(synchronize_session=False)
 
         for data in self.parsed_data:
@@ -499,7 +500,7 @@ class RainClassKnowledgePointSummaryImporter(BaseImporter):
             except Exception as e:
                 self.errors.append(f'保存知识点{data.get("knowledge_name", "未知")}失败: {str(e)}')
 
-        db.session.commit()
+        db.session.flush()
         return success_count
 
     @staticmethod
@@ -757,27 +758,24 @@ class RainClassImporter(BaseImporter):
         success_count = 0
         
         # 获取或创建班级
-        class_id = self._get_or_create_class()
+        class_id = self._get_target_class_id()
         
         for data in self.parsed_data:
             try:
                 # 查找或创建学生
-                student = Student.find_by_student_no_flex(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
                         name=data['name'],
                         class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
                 else:
                     # 更新姓名（如果不同）
                     if data['name'] and student.name != data['name']:
                         student.name = data['name']
-                    
-                    # 关联班级（如果学生还没有班级）
-                    if class_id and not student.class_id:
-                        student.class_id = class_id
                 
                 # 更新或创建行为数据
                 behavior = StudentBehavior.get_by_student_id(student.id)
@@ -804,7 +802,7 @@ class RainClassImporter(BaseImporter):
             except Exception as e:
                 self.errors.append(f'保存学生{data.get("student_no", "未知")}失败: {str(e)}')
         
-        db.session.commit()
+        db.session.flush()
         return success_count
 
 
@@ -869,24 +867,23 @@ class RainClassKnowledgeImporter(BaseImporter):
         success_count = 0
         
         # 获取或创建班级
-        class_id = self._get_or_create_class()
+        class_id = self._get_target_class_id()
         
         for data in self.parsed_data:
             try:
                 # 查找或创建学生
-                student = Student.find_by_student_no_flex(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
                         name=data['name'],
                         class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
                 else:
                     if data['name'] and student.name != data['name']:
                         student.name = data['name']
-                    if class_id and not student.class_id:
-                        student.class_id = class_id
                 
                 # 更新或创建知识点掌握记录
                 mastery = StudentKnowledgeMastery.get_student_knowledge(
@@ -914,5 +911,5 @@ class RainClassKnowledgeImporter(BaseImporter):
             except Exception as e:
                 self.errors.append(f'保存知识点数据失败: {str(e)}')
         
-        db.session.commit()
+        db.session.flush()
         return success_count

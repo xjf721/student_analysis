@@ -63,7 +63,7 @@ class EducoderImporter(BaseImporter):
             return False, errors
         
         try:
-            self._prepare_legacy_import_context()
+            self._get_target_class_id()
         except ValueError as exc:
             errors.append(str(exc))
             return False, errors
@@ -147,26 +147,23 @@ class EducoderImporter(BaseImporter):
         success_count = 0
         
         # 获取或创建班级
-        class_id = self._get_or_create_class()
+        class_id = self._get_target_class_id()
         
         for data in self.parsed_data:
             try:
                 # 查找或创建学生
-                student = Student.find_by_student_no_flex(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
                         name=data['name'] or f'学生{data["student_no"]}',
                         class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
                 else:
                     if data['name'] and student.name != data['name']:
                         student.name = data['name']
-                    # 关联班级（如果学生还没有班级）
-                    if class_id and not student.class_id:
-                        student.class_id = class_id
-                        db.session.commit()
                 
                 # 更新或创建实践数据
                 practice = StudentPractice.get_by_student_id(student.id)
@@ -189,7 +186,7 @@ class EducoderImporter(BaseImporter):
             except Exception as e:
                 self.errors.append(f'保存学生{data.get("student_no", "未知")}失败: {str(e)}')
         
-        db.session.commit()
+        db.session.flush()
         return success_count
     
     def _find_student_no_column(self) -> Optional[str]:
@@ -341,25 +338,22 @@ class EducoderActivityImporter(EducoderImporter):
         success_count = 0
         
         # 获取或创建班级
-        class_id = self._get_or_create_class()
+        class_id = self._get_target_class_id()
         
         for data in self.parsed_data:
             try:
-                student = Student.find_by_student_no_flex(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
                         name=data['name'] or f'学生{data["student_no"]}',
                         class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
                 else:
                     if data['name'] and student.name != data['name']:
                         student.name = data['name']
-                    # 关联班级（如果学生还没有班级）
-                    if class_id and not student.class_id:
-                        student.class_id = class_id
-                        db.session.commit()
                 
                 practice = StudentPractice.get_by_student_id(student.id)
                 if not practice:
@@ -378,7 +372,7 @@ class EducoderActivityImporter(EducoderImporter):
             except Exception as e:
                 self.errors.append(f'保存失败: {str(e)}')
         
-        db.session.commit()
+        db.session.flush()
         return success_count
 
 
@@ -645,26 +639,31 @@ class EducoderAssignmentImporter(EducoderImporter):
     def _save_to_db(self) -> int:
         success_count = 0
 
-        class_id = self._get_or_create_class()
-        StudentAssignmentChallenge.query.filter_by(source_file=self.filename).delete(synchronize_session=False)
-        StudentAssignmentDetail.query.filter_by(source_file=self.filename).delete(synchronize_session=False)
+        class_id = self._get_target_class_id()
+        student_ids = db.session.query(Student.id).filter(Student.class_id == class_id)
+        StudentAssignmentChallenge.query.filter(
+            StudentAssignmentChallenge.source_file == self.filename,
+            StudentAssignmentChallenge.student_id.in_(student_ids),
+        ).delete(synchronize_session=False)
+        StudentAssignmentDetail.query.filter(
+            StudentAssignmentDetail.source_file == self.filename,
+            StudentAssignmentDetail.student_id.in_(student_ids),
+        ).delete(synchronize_session=False)
 
         for data in self.parsed_data:
             try:
-                student = Student.find_by_student_no_flex(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
                         name=data['name'] or f'学生{data["student_no"]}',
                         class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
                 else:
                     if data['name'] and student.name != data['name']:
                         student.name = data['name']
-                    if class_id and not student.class_id:
-                        student.class_id = class_id
-                        db.session.commit()
 
                 practice = StudentPractice.get_by_student_id(student.id)
                 if not practice:
@@ -724,5 +723,5 @@ class EducoderAssignmentImporter(EducoderImporter):
             except Exception as e:
                 self.errors.append(f'保存学生{data.get("student_no", "未知")}失败: {str(e)}')
 
-        db.session.commit()
+        db.session.flush()
         return success_count
