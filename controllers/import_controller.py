@@ -61,12 +61,15 @@ def resolve_import_folder(folder: str) -> Path:
 
 
 @import_bp.route('/import')
+@require_active_class
 def import_page():
     """数据导入页面"""
+    class_id = get_active_class_id()
     return render_template('import/index.html')
 
 
 @import_bp.route('/api/import/upload', methods=['POST'])
+@require_active_class
 def upload_file():
     """
     上传并导入数据文件
@@ -74,6 +77,7 @@ def upload_file():
     Returns:
         导入结果
     """
+    class_id = get_active_class_id()
     # 检查文件是否存在
     if 'file' not in request.files:
         return jsonify({'success': False, 'message': '没有选择文件'}), 400
@@ -123,6 +127,7 @@ def upload_file():
 
 
 @import_bp.route('/api/import/folder', methods=['POST'])
+@require_active_class
 def import_folder():
     """
     一键导入指定文件夹中的所有Excel文件。
@@ -133,6 +138,7 @@ def import_folder():
     Returns:
         批量导入结果
     """
+    class_id = get_active_class_id()
     payload = request.get_json(silent=True) or request.form
     folder = payload.get('folder', 'new-datas')
     folder_path = resolve_import_folder(folder)
@@ -313,6 +319,7 @@ def import_data(file_path: str, import_type: str = '', original_filename: str = 
 
 
 @import_bp.route('/api/import/records')
+@require_active_class
 def get_import_records():
     """
     获取导入日志
@@ -323,9 +330,10 @@ def get_import_records():
     Returns:
         导入记录列表
     """
+    class_id = get_active_class_id()
     limit = request.args.get('limit', default=20, type=int)
     
-    records = ImportRecord.get_recent_records(limit=limit)
+    records = ImportRecord.get_recent_records(class_id, limit)
     
     return jsonify([r.to_dict() for r in records])
 
@@ -356,12 +364,14 @@ def run_analysis():
 
 
 @import_bp.route('/api/import/clear-all', methods=['POST'])
+@require_active_class
 def clear_all_data():
     """
     一键清空所有已导入和已分析的数据。
 
     仅清空数据库数据，不删除磁盘上的Excel原始文件。
     """
+    class_id = get_active_class_id()
     try:
         delete_order = [
             WarningRecord,
@@ -453,6 +463,7 @@ def run_all_analysis(class_id: int) -> dict:
 
 
 @import_bp.route('/api/import/types')
+@require_active_class
 def get_import_types():
     """
     获取支持的导入类型
@@ -460,6 +471,7 @@ def get_import_types():
     Returns:
         导入类型列表
     """
+    class_id = get_active_class_id()
     return jsonify([
         {'type': '雨课堂', 'description': '学习过程数据（到课率、视频完成率等）'},
         {'type': '雨课堂-学生汇总', 'description': '学生汇总表（知识点掌握率、完成率）'},

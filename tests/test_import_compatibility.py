@@ -77,7 +77,7 @@ def test_legacy_importer_creates_class_scoped_record_and_preserves_other_class(a
         ).count() == 1
 
 
-def test_import_records_endpoint_remains_global_until_class_selection_exists(app, client, two_classes):
+def test_import_records_endpoint_requires_and_uses_class_selection(app, client, two_classes):
     first_id, second_id = two_classes
     with app.app_context():
         db.session.add_all([
@@ -109,9 +109,14 @@ def test_import_records_endpoint_remains_global_until_class_selection_exists(app
     assert login.status_code == 302
 
     response = client.get('/api/import/records?limit=20')
+    assert response.status_code == 409
+
+    selected = client.post(f'/api/classes/{first_id}/select')
+    assert selected.status_code == 200
+    response = client.get(f'/api/import/records?limit=20&class_id={second_id}')
 
     assert response.status_code == 200
-    assert {record['class_id'] for record in response.get_json()} == {first_id, second_id}
+    assert [record['class_id'] for record in response.get_json()] == [first_id]
 
 
 def test_default_csrf_rejects_existing_post_routes_without_a_token(tmp_path):

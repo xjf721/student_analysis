@@ -2,6 +2,7 @@ import pytest
 
 from models import (
     ClassInfo,
+    ImportRecord,
     Student,
     StudentBehavior,
     StudentKnowledgeMastery,
@@ -212,3 +213,86 @@ def test_repository_class_scoped_queries_reject_empty_calls(call):
 def test_analyzers_require_class_id(analyzer, class_id):
     with pytest.raises(ValueError, match='class_id is required'):
         analyzer(class_id)
+
+
+@pytest.mark.parametrize(
+    'method,path',
+    [
+        ('get', '/import'),
+        ('post', '/api/import/upload'),
+        ('post', '/api/import/folder'),
+        ('get', '/api/import/records'),
+        ('post', '/api/import/analyze'),
+        ('post', '/api/import/clear-all'),
+        ('get', '/api/import/types'),
+    ],
+)
+def test_import_routes_require_active_class(client, method, path):
+    client.post('/login', data={'username': 'admin', 'password': 'correct-password'})
+
+    response = getattr(client, method)(path)
+
+    if path == '/import':
+        assert response.status_code == 302
+        assert response.headers['Location'].endswith('/classes')
+    else:
+        assert response.status_code == 409
+        assert response.get_json() == {'error': 'active_class_required'}
+
+
+def test_stale_active_class_is_cleared_for_import_records(client):
+    client.post('/login', data={'username': 'admin', 'password': 'correct-password'})
+    with client.session_transaction() as session:
+        session['active_class_id'] = 999999
+
+    response = client.get('/api/import/records')
+
+    assert response.status_code == 409
+    with client.session_transaction() as session:
+        assert 'active_class_id' not in session
+
+
+def test_import_records_are_scoped_and_query_override_is_ignored(app, client, two_classes):
+    first_id, second_id = two_classes
+    with app.app_context():
+        db.session.add_all([
+            ImportRecord(
+                class_id=first_id,
+                filename='first.xlsx',
+                file_hash='a' * 64,
+                uploaded_by='admin',
+                import_type='rain_classroom',
+            ),
+            ImportRecord(
+                class_id=second_id,
+                filename='second.xlsx',
+                file_hash='b' * 64,
+                uploaded_by='admin',
+                import_type='rain_classroom',
+            ),
+        ])
+        db.session.commit()
+    login_and_select(client, first_id)
+
+    response = client.get(f'/api/import/records?class_id={second_id}')
+
+    assert response.status_code == 200
+    assert [item['filename'] for item in response.get_json()] == ['first.xlsx']
+    assert [item['class_id'] for item in response.get_json()] == [first_id]
+
+
+def test_warning_refresh_preserves_other_class_records(app, two_classes):
+    first_id, second_id = two_classes
+    _, second_student_id = seed_two_class_students(app, first_id, second_id)
+    with app.app_context():
+        other_warning = WarningRecord.query.filter_by(student_id=second_student_id).one()
+        other_warning_id = other_warning.id
+        other_warning_score = other_warning.warning_score
+
+        WarningEngine(first_id).refresh_warnings()
+
+        preserved = db.session.get(WarningRecord, other_warning_id)
+        assert preserved is not None
+        assert preserved.student_id == second_student_id
+        assert preserved.warning_score == other_warning_score
+        assert WarningRecord.query.join(Student).filter(Student.class_id == second_id).count() == 1
