@@ -33,7 +33,8 @@
             <input type="hidden" name="class_id" value="{{ class_item.id }}">
             <div class="form-group">
               <label for="class-file-input">选择 Excel 文件</label>
-              <input class="form-control-file" id="class-file-input" name="file" type="file" accept=".xlsx,.xls" required>
+              <input class="form-control-file" id="class-file-input" name="file" type="file" accept=".xlsx,.xls" multiple required>
+              <small class="form-text text-muted" id="class-file-count">可同时选择多个文件</small>
             </div>
             <button class="btn btn-primary" type="submit"><i class="fas fa-upload"></i> 上传并导入</button>
           </form>
@@ -76,8 +77,44 @@ $(function () {
     return $('<div>').text(value == null ? '' : value).html();
   }
 
+  $('#class-file-input').on('change', function () {
+    var text = '可同时选择多个文件';
+    if (this.files.length === 1) {
+      text = this.files[0].name;
+    } else if (this.files.length > 1) {
+      text = '已选择 ' + this.files.length + ' 个文件';
+    }
+    $('#class-file-count').text(text);
+  });
+
+  function renderClassUploadResult(data) {
+    if (!data.results) {
+      var singleClass = data.success ? 'alert-success' : 'alert-danger';
+      var singleMessage = data.success
+        ? '导入成功，共 ' + escapeHtml(data.imported_count || 0) + ' 条。'
+        : escapeHtml(data.message || '导入失败');
+      return '<div class="alert ' + singleClass + '">' + singleMessage + '</div>';
+    }
+
+    var alertClass = data.success ? 'alert-success' : (data.partial_success ? 'alert-warning' : 'alert-danger');
+    var html = '<div class="alert ' + alertClass + '">' +
+      '<strong>' + escapeHtml(data.message) + '</strong><br>' +
+      '导入数据：' + escapeHtml(data.total_imported_rows || 0) + ' 条' +
+      '<ul class="mb-0 mt-2">';
+    data.results.forEach(function (item) {
+      var message = item.success
+        ? '成功，导入 ' + escapeHtml(item.imported_count || 0) + ' 条'
+        : '失败：' + escapeHtml(item.message || '未知错误');
+      html += '<li>' + escapeHtml(item.filename) + '：' + message + '</li>';
+    });
+    return html + '</ul></div>';
+  }
+
   function submitClassUpload(formData) {
+    var retrying = false;
     $('#class-upload-result').show().html('<div class="alert alert-info">上传中...</div>');
+    var submitButton = $('#class-upload-form button[type="submit"]');
+    submitButton.prop('disabled', true);
     $.ajax({
       url: '/api/import/upload',
       type: 'POST',
@@ -85,23 +122,18 @@ $(function () {
       processData: false,
       contentType: false,
       success: function (data) {
-        if (data.success) {
-          $('#class-upload-result').html(
-            '<div class="alert alert-success">导入成功，共 ' + escapeHtml(data.imported_count) + ' 条。</div>'
-          );
-        } else {
-          $('#class-upload-result').html(
-            '<div class="alert alert-danger">' + escapeHtml(data.message || '导入失败') + '</div>'
-          );
-        }
+        $('#class-upload-result').html(renderClassUploadResult(data));
       },
       error: function (xhr) {
         var payload = xhr.responseJSON || {};
         if (xhr.status === 409 && payload.error === 'class_name_mismatch') {
+          var conflictingFiles = (payload.conflicting_files || []).map(function (filename) {
+            return escapeHtml(filename);
+          });
           if (confirm(
-            '文件名识别班级为“' + payload.detected_class +
-            '”，当前目标班级为“' + payload.selected_class + '”。仍要导入吗？'
+            '以下文件的班级与目标班级不一致：\n' + conflictingFiles.join('\n') + '\n\n仍要导入吗？'
           )) {
+            retrying = true;
             formData.set('confirm_class_mismatch', 'true');
             submitClassUpload(formData);
             return;
@@ -110,6 +142,11 @@ $(function () {
         $('#class-upload-result').html(
           '<div class="alert alert-danger">' + escapeHtml(payload.message || '上传失败') + '</div>'
         );
+      },
+      complete: function () {
+        if (!retrying) {
+          submitButton.prop('disabled', false);
+        }
       }
     });
   }

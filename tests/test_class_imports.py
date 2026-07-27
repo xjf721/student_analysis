@@ -559,6 +559,13 @@ def test_class_detail_has_locked_upload_for_its_class(client, two_classes):
     assert 'data-bs-target="#class-upload-panel"' in html
     assert 'id="class-upload-form"' in html
     assert f'name="class_id" value="{second_id}"' in html
+    assert 'id="class-file-input" name="file" type="file" accept=".xlsx,.xls" multiple required' in html
+    assert 'data.results.forEach(function (item)' in html
+    assert "payload.conflicting_files || []" in html
+    assert "$('#class-upload-form button[type=\"submit\"]')" in html
+    assert 'if (!retrying)' in html
+    assert ".prop('disabled', true)" in html
+    assert ".prop('disabled', false)" in html
     assert 'confirm_class_mismatch' in html
     assert '/api/import/upload' in html
     with client.session_transaction() as session:
