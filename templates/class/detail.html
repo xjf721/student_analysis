@@ -87,13 +87,20 @@ $(function () {
     $('#class-file-count').text(text);
   });
 
+  function renderAnalysisWarning(data) {
+    return data.analysis_warning
+      ? '<div class="mt-2 text-warning">' + escapeHtml(data.analysis_warning) + '</div>'
+      : '';
+  }
+
   function renderClassUploadResult(data) {
     if (!data.results) {
       var singleClass = data.success ? 'alert-success' : 'alert-danger';
       var singleMessage = data.success
         ? '导入成功，共 ' + escapeHtml(data.imported_count || 0) + ' 条。'
         : escapeHtml(data.message || '导入失败');
-      return '<div class="alert ' + singleClass + '">' + singleMessage + '</div>';
+      return '<div class="alert ' + singleClass + '">' + singleMessage +
+        renderAnalysisWarning(data) + '</div>';
     }
 
     var alertClass = data.success ? 'alert-success' : (data.partial_success ? 'alert-warning' : 'alert-danger');
@@ -107,7 +114,7 @@ $(function () {
         : '失败：' + escapeHtml(item.message || '未知错误');
       html += '<li>' + escapeHtml(item.filename) + '：' + message + '</li>';
     });
-    return html + '</ul></div>';
+    return html + '</ul>' + renderAnalysisWarning(data) + '</div>';
   }
 
   function submitClassUpload(formData) {
@@ -130,9 +137,11 @@ $(function () {
           var conflictingFiles = (payload.conflicting_files || []).map(function (filename) {
             return escapeHtml(filename);
           });
-          if (confirm(
-            '以下文件的班级与目标班级不一致：\n' + conflictingFiles.join('\n') + '\n\n仍要导入吗？'
-          )) {
+          var conflictMessage = conflictingFiles.length
+            ? '以下文件的班级与目标班级不一致：\n' + conflictingFiles.join('\n') + '\n\n仍要导入吗？'
+            : '文件名识别班级为“' + payload.detected_class +
+              '”，当前目标班级为“' + payload.selected_class + '”。仍要导入吗？';
+          if (confirm(conflictMessage)) {
             retrying = true;
             formData.set('confirm_class_mismatch', 'true');
             submitClassUpload(formData);

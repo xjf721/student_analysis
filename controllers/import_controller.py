@@ -134,13 +134,16 @@ def upload_file():
 
     unsupported_files = [file.filename for file in files if not allowed_file(file.filename)]
     if unsupported_files:
+        if len(files) == 1:
+            return jsonify({'success': False, 'message': '不支持的文件格式'}), 400
         return jsonify({'success': False, 'message': '存在不支持的文件格式', 'unsupported_files': unsupported_files}), 400
 
     mismatches = [(file.filename, _class_mismatch(file.filename, target_class)) for file in files]
     mismatches = [(name, mismatch) for name, mismatch in mismatches if mismatch]
     if mismatches and request.form.get('confirm_class_mismatch') != 'true':
         payload = dict(mismatches[0][1])
-        payload['conflicting_files'] = [name for name, _ in mismatches]
+        if len(files) > 1:
+            payload['conflicting_files'] = [name for name, _ in mismatches]
         return jsonify(payload), 409
 
     import_type = request.form.get('type', '').strip()
@@ -158,7 +161,10 @@ def upload_file():
         response.pop('filename', None)
     if any(item.get('success') for item in results):
         try:
-            response['analysis'] = run_all_analysis(target_class.id)
+            analysis_result = run_all_analysis(target_class.id)
+            response['analysis'] = analysis_result
+            if analysis_result.get('summary', {}).get('success') is False:
+                response['analysis_warning'] = '数据导入成功，但自动分析未全部完成，请稍后重新分析'
         except Exception as exc:
             response['analysis_warning'] = f'自动分析失败: {exc}'
     return jsonify(response)
