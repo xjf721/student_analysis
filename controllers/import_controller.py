@@ -128,64 +128,61 @@ def upload_file():
     target_class, error_response = _get_target_class(request.form)
     if error_response:
         return error_response
-    # 检查文件是否存在
-    if 'file' not in request.files:
+    files = [file for file in request.files.getlist('file') if file.filename]
+    if not files:
         return jsonify({'success': False, 'message': '没有选择文件'}), 400
-    
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({'success': False, 'message': '没有选择文件'}), 400
-    
-    if not allowed_file(file.filename):
-        return jsonify({'success': False, 'message': '不支持的文件格式'}), 400
-    
-    # 保存原始文件名（用于类型检测）
-    original_filename = file.filename
 
-    mismatch = _class_mismatch(original_filename, target_class)
-    if mismatch and request.form.get('confirm_class_mismatch') != 'true':
-        return jsonify(mismatch), 409
-    
-    # 保存文件（使用安全的文件名）
-    filename = secure_filename(file.filename)
-    # 如果secure_filename处理后为空或太短，使用时间戳
+    unsupported_files = [file.filename for file in files if not allowed_file(file.filename)]
+    if unsupported_files:
+        return jsonify({'success': False, 'message': '存在不支持的文件格式', 'unsupported_files': unsupported_files}), 400
+
+    mismatches = [(file.filename, _class_mismatch(file.filename, target_class)) for file in files]
+    mismatches = [(name, mismatch) for name, mismatch in mismatches if mismatch]
+    if mismatches and request.form.get('confirm_class_mismatch') != 'true':
+        payload = dict(mismatches[0][1])
+        payload['conflicting_files'] = [name for name, _ in mismatches]
+        return jsonify(payload), 409
+
+    import_type = request.form.get('type', '').strip()
+    results = []
+    for file in files:
+        try:
+            results.append(_import_uploaded_file(file, target_class, import_type))
+        except Exception as exc:
+            if len(files) == 1:
+                return jsonify({'success': False, 'message': str(exc)}), 500
+            results.append({'filename': file.filename, 'success': False, 'message': str(exc), 'errors': [str(exc)], 'warnings': [], 'imported_count': 0})
+
+    response = results[0] if len(files) == 1 else _build_batch_upload_response(results)
+    if len(files) == 1:
+        response.pop('filename', None)
+    if any(item.get('success') for item in results):
+        try:
+            response['analysis'] = run_all_analysis(target_class.id)
+        except Exception as exc:
+            response['analysis_warning'] = f'自动分析失败: {exc}'
+    return jsonify(response)
+
+
+def _import_uploaded_file(file, target_class, import_type):
+    original_filename = file.filename
+    filename = secure_filename(original_filename)
     if not filename or len(filename) < 5:
-        import time
         ext = original_filename.rsplit('.', 1)[-1] if '.' in original_filename else 'xls'
-        filename = f"upload_{int(time.time())}.{ext}"
-    
+        filename = f'upload_{uuid4().hex}.{ext}'
     upload_folder = Path(current_app.config['UPLOAD_FOLDER'])
     upload_folder.mkdir(parents=True, exist_ok=True)
-    
     file_path = upload_folder / f'{uuid4().hex}_{filename}'
     file.save(file_path)
-    file_hash = calculate_file_hash(file_path)
-    
-    # 自动检测文件类型并选择导入器（使用原始文件名检测）
-    import_type = request.form.get('type', '').strip()
-    
-    try:
-        result = import_data(
-            str(file_path),
-            target_class.id,
-            session['admin_username'],
-            import_type=import_type,
-            original_filename=original_filename,
-            file_hash=file_hash,
-        )
-        
-        # 导入成功后自动触发分析
-        if result.get('success'):
-            try:
-                analysis_result = run_all_analysis(target_class.id)
-                result['analysis'] = analysis_result
-            except Exception as e:
-                result['analysis_warning'] = f'自动分析失败: {e}'
-        
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+    result = import_data(str(file_path), target_class.id, session['admin_username'], import_type=import_type, original_filename=original_filename, file_hash=calculate_file_hash(file_path))
+    result['filename'] = original_filename
+    return result
+
+
+def _build_batch_upload_response(results):
+    imported_files = sum(bool(item.get('success')) for item in results)
+    failed_files = len(results) - imported_files
+    return {'success': failed_files == 0, 'partial_success': imported_files > 0 and failed_files > 0, 'message': f'共处理 {len(results)} 个文件，成功 {imported_files} 个，失败 {failed_files} 个', 'total_files': len(results), 'imported_files': imported_files, 'failed_files': failed_files, 'total_imported_rows': sum((item.get('imported_count', 0) or 0) for item in results if item.get('success')), 'results': results}
 
 
 @import_bp.route('/api/import/folder', methods=['POST'])

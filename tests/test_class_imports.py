@@ -1,3 +1,4 @@
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -579,3 +580,106 @@ def test_import_query_class_synchronizes_active_session(client, two_classes):
     assert f'value="{second_id}" selected' in response.get_data(as_text=True)
     with client.session_transaction() as session:
         assert session['active_class_id'] == second_id
+
+
+def test_multi_file_upload_imports_in_order_and_analyzes_once(client, two_classes, monkeypatch):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    imported, analyzed = [], []
+    def fake_import(file_path, class_id, uploaded_by, **kwargs):
+        imported.append(kwargs['original_filename'])
+        return {'success': True, 'import_type': 'test', 'imported_count': 2}
+    monkeypatch.setattr('controllers.import_controller.import_data', fake_import)
+    monkeypatch.setattr('controllers.import_controller.run_all_analysis', lambda class_id: analyzed.append(class_id) or {'summary': {'success': True}})
+    response = client.post('/api/import/upload', data={'class_id': str(first_id), 'file': [(BytesIO(b'first'), 'rain_first.xlsx'), (BytesIO(b'second'), 'rain_second.xlsx')]})
+    payload = response.get_json()
+    assert response.status_code == 200
+    assert imported == ['rain_first.xlsx', 'rain_second.xlsx']
+    assert analyzed == [first_id]
+    assert payload['success'] is True
+    assert payload['total_files'] == 2
+    assert payload['imported_files'] == 2
+    assert payload['failed_files'] == 0
+    assert payload['total_imported_rows'] == 4
+
+
+def test_multi_file_upload_continues_after_file_failure(client, two_classes, monkeypatch):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    imported = []
+    def fake_import(file_path, class_id, uploaded_by, **kwargs):
+        filename = kwargs['original_filename']; imported.append(filename)
+        return {'success': filename != 'bad.xlsx', 'imported_count': 0 if filename == 'bad.xlsx' else 3}
+    monkeypatch.setattr('controllers.import_controller.import_data', fake_import)
+    monkeypatch.setattr('controllers.import_controller.run_all_analysis', lambda class_id: {'summary': {'success': True}})
+    payload = client.post('/api/import/upload', data={'class_id': str(first_id), 'file': [(BytesIO(b'bad'), 'bad.xlsx'), (BytesIO(b'good'), 'good.xlsx')]}).get_json()
+    assert imported == ['bad.xlsx', 'good.xlsx']
+    assert payload['success'] is False and payload['partial_success'] is True
+    assert payload['imported_files'] == 1 and payload['failed_files'] == 1
+    assert payload['total_imported_rows'] == 3
+
+
+def test_multi_file_class_mismatch_is_preflighted_before_any_import(
+    client, two_classes, monkeypatch
+):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    imported = []
+    monkeypatch.setattr(
+        'controllers.import_controller.import_data',
+        lambda *args, **kwargs: imported.append(kwargs['original_filename']),
+    )
+
+    conflicting_filename = '\u9752\u5e742\u73ed-\u96e8\u8bfe\u5802.xlsx'
+    response = client.post('/api/import/upload', data={
+        'class_id': str(first_id),
+        'file': [
+            (BytesIO(b'ok'), '\u9752\u5e741\u73ed-\u96e8\u8bfe\u5802.xlsx'),
+            (BytesIO(b'conflict'), conflicting_filename),
+        ],
+    })
+
+    payload = response.get_json()
+    assert response.status_code == 409
+    assert payload['error'] == 'class_name_mismatch'
+    assert payload['conflicting_files'] == [conflicting_filename]
+    assert imported == []
+
+
+def test_multi_file_upload_rejects_unsupported_format_before_any_import(client, two_classes, monkeypatch):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    imported = []
+    monkeypatch.setattr('controllers.import_controller.import_data', lambda *args, **kwargs: imported.append(kwargs['original_filename']))
+    response = client.post('/api/import/upload', data={'class_id': str(first_id), 'file': [(BytesIO(b'ok'), 'ok.xlsx'), (BytesIO(b'bad'), 'bad.csv')]})
+    assert response.status_code == 400
+    assert response.get_json()['unsupported_files'] == ['bad.csv']
+    assert imported == []
+
+
+def test_single_file_upload_keeps_legacy_response_shape(client, two_classes, monkeypatch):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    monkeypatch.setattr('controllers.import_controller.import_data', lambda *args, **kwargs: {'success': True, 'import_type': 'test', 'imported_count': 7})
+    monkeypatch.setattr('controllers.import_controller.run_all_analysis', lambda class_id: {'summary': {'success': True}})
+    payload = client.post('/api/import/upload', data={'class_id': str(first_id), 'file': (BytesIO(b'one'), 'one.xlsx')}).get_json()
+    assert payload['imported_count'] == 7
+    assert 'results' not in payload and 'total_files' not in payload
+    assert 'filename' not in payload
+
+
+def test_single_file_upload_import_exception_keeps_legacy_500(client, two_classes, monkeypatch):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    monkeypatch.setattr(
+        'controllers.import_controller.import_data',
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError('import failed')),
+    )
+
+    response = client.post('/api/import/upload', data={
+        'class_id': str(first_id),
+        'file': (BytesIO(b'one'), 'one.xlsx'),
+    })
+
+    assert response.status_code == 500
+    assert response.get_json() == {'success': False, 'message': 'import failed'}
