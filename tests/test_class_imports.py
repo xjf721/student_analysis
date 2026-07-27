@@ -532,11 +532,17 @@ def test_general_import_page_has_target_class_picker_and_no_clear_button(
     assert f'value="{second_id}"' in html
     assert 'confirm_class_mismatch' in html
     assert "'/api/classes/' + this.value + '/select'" in html
-    assert 'escapeHtml(data.import_type)' in html
-    assert 'escapeHtml(errorMsg)' in html
+    assert 'escapeHtml(data.message)' in html
     assert 'escapeHtml(item.filename)' in html
     assert 'escapeHtml(data.results[key].message)' in html
-    assert ".text(fileName || '选择文件...')" in html
+    assert 'id="file-input" name="file" accept=".xlsx,.xls" multiple' in html
+    assert "this.files.length === 1" in html
+    assert "'已选择 ' + this.files.length + ' 个文件'" in html
+    assert 'data.results.forEach(function(item)' in html
+    assert "payload.conflicting_files || []" in html
+    assert 'if (!retrying)' in html
+    assert ".prop('disabled', true)" in html
+    assert ".prop('disabled', false)" in html
     assert 'clear-data-btn' not in html
     assert '/api/import/clear-all' not in html
 

@@ -41,7 +41,7 @@
                                 <label>选择文件</label>
                                 <div class="input-group">
                                     <div class="custom-file">
-                                        <input type="file" class="custom-file-input" id="file-input" name="file" accept=".xlsx,.xls">
+                                        <input type="file" class="custom-file-input" id="file-input" name="file" accept=".xlsx,.xls" multiple required>
                                         <label class="custom-file-label" for="file-input">选择文件...</label>
                                     </div>
                                 </div>
@@ -142,10 +142,15 @@ $(function() {
             .replace(/'/g, '&#039;');
     }
     
-    // 文件选择显示文件名
+    // 文件选择显示文件名或数量
     $('#file-input').change(function() {
-        var fileName = $(this).val().split('\\').pop();
-        $(this).next('.custom-file-label').text(fileName || '选择文件...');
+        var label = '选择文件...';
+        if (this.files.length === 1) {
+            label = this.files[0].name;
+        } else if (this.files.length > 1) {
+            label = '已选择 ' + this.files.length + ' 个文件';
+        }
+        $(this).next('.custom-file-label').text(label);
     });
 
     // 同步活动班级，使导入历史和手动分析始终跟随目标班级。
@@ -172,8 +177,33 @@ $(function() {
             });
     });
     
+    function renderUploadResult(data) {
+        if (!data.results) {
+            var singleClass = data.success ? 'alert-success' : 'alert-danger';
+            var singleMessage = data.success
+                ? '导入成功，共 ' + escapeHtml(data.imported_count || 0) + ' 条。'
+                : escapeHtml(data.message || '导入失败');
+            return '<div class="alert ' + singleClass + '">' + singleMessage + '</div>';
+        }
+
+        var alertClass = data.success ? 'alert-success' : (data.partial_success ? 'alert-warning' : 'alert-danger');
+        var html = '<div class="alert ' + alertClass + '">' +
+            '<strong>' + escapeHtml(data.message) + '</strong><br>' +
+            '导入数据：' + escapeHtml(data.total_imported_rows || 0) + ' 条' +
+            '<ul class="mb-0 mt-2">';
+        data.results.forEach(function(item) {
+            var message = item.success
+                ? '成功，导入 ' + escapeHtml(item.imported_count || 0) + ' 条'
+                : '失败：' + escapeHtml(item.message || '未知错误');
+            html += '<li>' + escapeHtml(item.filename) + '：' + message + '</li>';
+        });
+        return html + '</ul></div>';
+    }
+
     function submitUpload(formData) {
+        var retrying = false;
         $('#upload-result').show().html('<div class="alert alert-info">上传中...</div>');
+        $('#upload-form button[type="submit"]').prop('disabled', true);
         $.ajax({
             url: '/api/import/upload',
             type: 'POST',
@@ -181,32 +211,22 @@ $(function() {
             processData: false,
             contentType: false,
             success: function(data) {
-                if (data.success) {
-                    $('#upload-result').html(
-                        '<div class="alert alert-success">' +
-                        '<strong>导入成功！</strong><br>' +
-                        '类型: ' + escapeHtml(data.import_type) + '<br>' +
-                        '导入数量: ' + escapeHtml(data.imported_count) +
-                        '</div>'
-                    );
+                $('#upload-result').html(renderUploadResult(data));
+                if (data.success || data.partial_success) {
                     loadImportLogs();
-                } else {
-                    var errorMsg = (data.errors && data.errors.length > 0) ? data.errors.join('<br>') : data.message;
-                    $('#upload-result').html(
-                        '<div class="alert alert-danger">' +
-                        '<strong>导入失败</strong><br>' + escapeHtml(errorMsg) +
-                        '</div>'
-                    );
                 }
             },
             error: function(xhr) {
                 var payload = xhr.responseJSON || {};
                 if (xhr.status === 409 && payload.error === 'class_name_mismatch') {
+                    var conflictingFiles = (payload.conflicting_files || []).map(function(filename) {
+                        return escapeHtml(filename);
+                    });
                     var confirmed = confirm(
-                        '文件名识别班级为“' + payload.detected_class +
-                        '”，目标班级为“' + payload.selected_class + '”。仍要导入吗？'
+                        '以下文件的班级与目标班级不一致：\n' + conflictingFiles.join('\n') + '\n\n仍要导入吗？'
                     );
                     if (confirmed) {
+                        retrying = true;
                         formData.set('confirm_class_mismatch', 'true');
                         submitUpload(formData);
                         return;
@@ -215,6 +235,11 @@ $(function() {
                 $('#upload-result').html(
                     '<div class="alert alert-danger">上传失败: ' + escapeHtml(payload.message || '未知错误') + '</div>'
                 );
+            },
+            complete: function() {
+                if (!retrying) {
+                    $('#upload-form button[type="submit"]').prop('disabled', false);
+                }
             }
         });
     }
