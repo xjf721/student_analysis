@@ -1,3 +1,4 @@
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -44,6 +45,44 @@ def test_filename_class_mismatch_requires_confirmation(
     assert payload['selected_class'] == '青年1班'
     assert payload['detected_class'] == '青年2班'
     assert imported == []
+
+
+def test_single_file_class_mismatch_keeps_exact_legacy_response(
+    client, two_classes
+):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+
+    response = client.post('/api/import/upload', data={
+        'class_id': str(first_id),
+        'file': (BytesIO(b'conflict'), '青年2班-雨课堂.xlsx'),
+    })
+
+    assert response.status_code == 409
+    assert response.get_json() == {
+        'error': 'class_name_mismatch',
+        'message': '文件名中的班级与目标班级不一致',
+        'selected_class': '青年1班',
+        'detected_class': '青年2班',
+    }
+
+
+def test_single_file_unsupported_format_keeps_exact_legacy_response(
+    client, two_classes
+):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+
+    response = client.post('/api/import/upload', data={
+        'class_id': str(first_id),
+        'file': (BytesIO(b'bad'), 'bad.csv'),
+    })
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        'success': False,
+        'message': '不支持的文件格式',
+    }
 
 
 def test_confirmed_upload_preserves_filename_and_uses_explicit_target(
@@ -531,11 +570,22 @@ def test_general_import_page_has_target_class_picker_and_no_clear_button(
     assert f'value="{second_id}"' in html
     assert 'confirm_class_mismatch' in html
     assert "'/api/classes/' + this.value + '/select'" in html
-    assert 'escapeHtml(data.import_type)' in html
-    assert 'escapeHtml(errorMsg)' in html
+    assert 'escapeHtml(data.message)' in html
     assert 'escapeHtml(item.filename)' in html
     assert 'escapeHtml(data.results[key].message)' in html
-    assert ".text(fileName || '选择文件...')" in html
+    assert 'id="file-input" name="file" accept=".xlsx,.xls" multiple' in html
+    assert "this.files.length === 1" in html
+    assert "'已选择 ' + this.files.length + ' 个文件'" in html
+    assert 'data.results.forEach(function(item)' in html
+    assert "payload.conflicting_files || []" in html
+    assert 'payload.detected_class' in html
+    assert 'payload.selected_class' in html
+    assert 'function renderAnalysisWarning(data)' in html
+    assert 'escapeHtml(data.analysis_warning)' in html
+    assert html.count('renderAnalysisWarning(data)') == 3
+    assert 'if (!retrying)' in html
+    assert ".prop('disabled', true)" in html
+    assert ".prop('disabled', false)" in html
     assert 'clear-data-btn' not in html
     assert '/api/import/clear-all' not in html
 
@@ -552,6 +602,18 @@ def test_class_detail_has_locked_upload_for_its_class(client, two_classes):
     assert 'data-bs-target="#class-upload-panel"' in html
     assert 'id="class-upload-form"' in html
     assert f'name="class_id" value="{second_id}"' in html
+    assert 'id="class-file-input" name="file" type="file" accept=".xlsx,.xls" multiple required' in html
+    assert 'data.results.forEach(function (item)' in html
+    assert "payload.conflicting_files || []" in html
+    assert 'payload.detected_class' in html
+    assert 'payload.selected_class' in html
+    assert 'function renderAnalysisWarning(data)' in html
+    assert 'escapeHtml(data.analysis_warning)' in html
+    assert html.count('renderAnalysisWarning(data)') == 3
+    assert "$('#class-upload-form button[type=\"submit\"]')" in html
+    assert 'if (!retrying)' in html
+    assert ".prop('disabled', true)" in html
+    assert ".prop('disabled', false)" in html
     assert 'confirm_class_mismatch' in html
     assert '/api/import/upload' in html
     with client.session_transaction() as session:
@@ -579,3 +641,143 @@ def test_import_query_class_synchronizes_active_session(client, two_classes):
     assert f'value="{second_id}" selected' in response.get_data(as_text=True)
     with client.session_transaction() as session:
         assert session['active_class_id'] == second_id
+
+
+def test_multi_file_upload_imports_in_order_and_analyzes_once(client, two_classes, monkeypatch):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    imported, analyzed = [], []
+    def fake_import(file_path, class_id, uploaded_by, **kwargs):
+        imported.append(kwargs['original_filename'])
+        return {'success': True, 'import_type': 'test', 'imported_count': 2}
+    monkeypatch.setattr('controllers.import_controller.import_data', fake_import)
+    monkeypatch.setattr('controllers.import_controller.run_all_analysis', lambda class_id: analyzed.append(class_id) or {'summary': {'success': True}})
+    response = client.post('/api/import/upload', data={'class_id': str(first_id), 'file': [(BytesIO(b'first'), 'rain_first.xlsx'), (BytesIO(b'second'), 'rain_second.xlsx')]})
+    payload = response.get_json()
+    assert response.status_code == 200
+    assert imported == ['rain_first.xlsx', 'rain_second.xlsx']
+    assert analyzed == [first_id]
+    assert payload['success'] is True
+    assert payload['total_files'] == 2
+    assert payload['imported_files'] == 2
+    assert payload['failed_files'] == 0
+    assert payload['total_imported_rows'] == 4
+
+
+def test_multi_file_upload_continues_after_file_failure(client, two_classes, monkeypatch):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    imported = []
+    def fake_import(file_path, class_id, uploaded_by, **kwargs):
+        filename = kwargs['original_filename']; imported.append(filename)
+        return {'success': filename != 'bad.xlsx', 'imported_count': 0 if filename == 'bad.xlsx' else 3}
+    monkeypatch.setattr('controllers.import_controller.import_data', fake_import)
+    monkeypatch.setattr('controllers.import_controller.run_all_analysis', lambda class_id: {'summary': {'success': True}})
+    payload = client.post('/api/import/upload', data={'class_id': str(first_id), 'file': [(BytesIO(b'bad'), 'bad.xlsx'), (BytesIO(b'good'), 'good.xlsx')]}).get_json()
+    assert imported == ['bad.xlsx', 'good.xlsx']
+    assert payload['success'] is False and payload['partial_success'] is True
+    assert payload['imported_files'] == 1 and payload['failed_files'] == 1
+    assert payload['total_imported_rows'] == 3
+
+
+def test_multi_file_class_mismatch_is_preflighted_before_any_import(
+    client, two_classes, monkeypatch
+):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    imported = []
+    monkeypatch.setattr(
+        'controllers.import_controller.import_data',
+        lambda *args, **kwargs: imported.append(kwargs['original_filename']),
+    )
+
+    conflicting_filename = '\u9752\u5e742\u73ed-\u96e8\u8bfe\u5802.xlsx'
+    response = client.post('/api/import/upload', data={
+        'class_id': str(first_id),
+        'file': [
+            (BytesIO(b'ok'), '\u9752\u5e741\u73ed-\u96e8\u8bfe\u5802.xlsx'),
+            (BytesIO(b'conflict'), conflicting_filename),
+        ],
+    })
+
+    payload = response.get_json()
+    assert response.status_code == 409
+    assert payload['error'] == 'class_name_mismatch'
+    assert payload['conflicting_files'] == [conflicting_filename]
+    assert imported == []
+
+
+def test_multi_file_upload_rejects_unsupported_format_before_any_import(client, two_classes, monkeypatch):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    imported = []
+    monkeypatch.setattr('controllers.import_controller.import_data', lambda *args, **kwargs: imported.append(kwargs['original_filename']))
+    response = client.post('/api/import/upload', data={'class_id': str(first_id), 'file': [(BytesIO(b'ok'), 'ok.xlsx'), (BytesIO(b'bad'), 'bad.csv')]})
+    assert response.status_code == 400
+    assert response.get_json()['unsupported_files'] == ['bad.csv']
+    assert imported == []
+
+
+def test_single_file_upload_keeps_legacy_response_shape(client, two_classes, monkeypatch):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    monkeypatch.setattr('controllers.import_controller.import_data', lambda *args, **kwargs: {'success': True, 'import_type': 'test', 'imported_count': 7})
+    monkeypatch.setattr('controllers.import_controller.run_all_analysis', lambda class_id: {'summary': {'success': True}})
+    payload = client.post('/api/import/upload', data={'class_id': str(first_id), 'file': (BytesIO(b'one'), 'one.xlsx')}).get_json()
+    assert payload['imported_count'] == 7
+    assert 'results' not in payload and 'total_files' not in payload
+    assert 'filename' not in payload
+
+
+def test_successful_upload_warns_when_analysis_summary_reports_failure(
+    client, two_classes, monkeypatch
+):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    analysis_result = {
+        'behavior': {'success': False, 'message': '行为分析失败'},
+        'summary': {'success': False, 'total_analyzed': 0},
+    }
+    monkeypatch.setattr(
+        'controllers.import_controller.import_data',
+        lambda *args, **kwargs: {
+            'success': True,
+            'import_type': 'test',
+            'imported_count': 1,
+        },
+    )
+    monkeypatch.setattr(
+        'controllers.import_controller.run_all_analysis',
+        lambda class_id: analysis_result,
+    )
+
+    response = client.post('/api/import/upload', data={
+        'class_id': str(first_id),
+        'file': (BytesIO(b'one'), 'one.xlsx'),
+    })
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        'success': True,
+        'import_type': 'test',
+        'imported_count': 1,
+        'analysis': analysis_result,
+        'analysis_warning': '数据导入成功，但自动分析未全部完成，请稍后重新分析',
+    }
+
+
+def test_single_file_upload_import_exception_keeps_legacy_500(client, two_classes, monkeypatch):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+    monkeypatch.setattr(
+        'controllers.import_controller.import_data',
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError('import failed')),
+    )
+
+    response = client.post('/api/import/upload', data={
+        'class_id': str(first_id),
+        'file': (BytesIO(b'one'), 'one.xlsx'),
+    })
+
+    assert response.status_code == 500
+    assert response.get_json() == {'success': False, 'message': 'import failed'}
