@@ -7,6 +7,8 @@ from sqlalchemy import func
 from models import (
     db,
     Student,
+    StudentBehavior,
+    StudentPractice,
     StudentKnowledgeMastery,
     WarningRecord,
     StudentAssignmentDetail,
@@ -399,20 +401,41 @@ class StudentRepository:
         return student
     
     @staticmethod
-    def delete(student_id: int) -> bool:
-        """
-        删除学生
-        
-        Args:
-            student_id: 学生ID
-            
-        Returns:
-            是否删除成功
-        """
-        student = Student.query.get(student_id)
-        
+    def delete(student_id: int, class_id: int) -> Optional[Dict]:
+        """原子删除当前班级的学生及全部学生级关联数据。"""
+        student = Student.query.filter_by(id=student_id, class_id=class_id).first()
         if not student:
-            return False
-        
-        student.delete()
-        return True
+            return None
+
+        deleted_student = {
+            'id': student.id,
+            'student_no': student.student_no,
+            'name': student.name,
+        }
+
+        try:
+            StudentAssignmentChallenge.query.filter_by(student_id=student.id).delete(
+                synchronize_session=False
+            )
+            StudentAssignmentDetail.query.filter_by(student_id=student.id).delete(
+                synchronize_session=False
+            )
+            StudentBehavior.query.filter_by(student_id=student.id).delete(
+                synchronize_session=False
+            )
+            StudentPractice.query.filter_by(student_id=student.id).delete(
+                synchronize_session=False
+            )
+            StudentKnowledgeMastery.query.filter_by(student_id=student.id).delete(
+                synchronize_session=False
+            )
+            WarningRecord.query.filter_by(student_id=student.id).delete(
+                synchronize_session=False
+            )
+            db.session.delete(student)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
+
+        return deleted_student

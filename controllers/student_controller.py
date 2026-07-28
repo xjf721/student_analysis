@@ -9,7 +9,7 @@
 - 薄弱知识点列表
 - 风险原因分析
 """
-from flask import Blueprint, abort, render_template, jsonify, request
+from flask import Blueprint, abort, current_app, render_template, jsonify, request
 from repositories import StudentRepository, KnowledgeRepository, WarningRepository
 from services.analysis import KnowledgeAnalyzer, PracticeAnalyzer
 from services.class_context import get_active_class_id, require_active_class
@@ -216,3 +216,33 @@ def get_student_overview(student_id):
         return jsonify({'error': '学生不存在'}), 404
     
     return jsonify(overview_data)
+
+
+@student_bp.route('/api/student/<int:student_id>', methods=['DELETE'])
+@require_active_class
+def delete_student(student_id: int):
+    """删除当前班级的一名学生及全部关联数据。"""
+    class_id = get_active_class_id()
+    try:
+        student = StudentRepository.delete(student_id, class_id)
+    except Exception:
+        current_app.logger.exception(
+            'Failed to delete student id=%s from class id=%s',
+            student_id,
+            class_id,
+        )
+        return jsonify({
+            'error': 'student_delete_failed',
+            'message': '删除学生失败，请稍后重试',
+        }), 500
+
+    if not student:
+        return jsonify({
+            'error': 'student_not_found',
+            'message': '学生不存在或不属于当前班级',
+        }), 404
+
+    return jsonify({
+        'message': f'已删除学生{student["name"]}（{student["student_no"]}）及其全部关联数据',
+        'student': student,
+    })
