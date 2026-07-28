@@ -14,7 +14,7 @@ from models import (
     db,
 )
 from services.importers.base_importer import BaseImporter, calculate_file_hash
-from services.importers.rainclass_importer import RainClassSummaryImporter
+from services.importers.rainclass_importer import RainClassImporter, RainClassSummaryImporter
 
 
 def login_and_select(client, class_id):
@@ -539,6 +539,83 @@ def test_cross_class_student_number_collision_does_not_move_student(
         assert StudentKnowledgeMastery.query.count() == 0
         failed = ImportRecord.query.filter_by(class_id=second_id).one()
         assert failed.import_status == '失败'
+
+
+def test_rainclass_file_without_behavior_columns_preserves_existing_behavior(
+    app, two_classes, tmp_path
+):
+    first_id, _ = two_classes
+    file_path = tmp_path / '雨课堂-成绩单.xlsx'
+    file_path.write_bytes(b'score workbook')
+
+    with app.app_context():
+        student = Student(student_no='20260001', name='测试学生', class_id=first_id)
+        db.session.add(student)
+        db.session.flush()
+        db.session.add(StudentBehavior(
+            student_id=student.id,
+            attendance_rate=96,
+            ppt_view_rate=95,
+            video_finish_rate=94,
+            exercise_submit_rate=93,
+            exercise_score_rate=92,
+            discussion_count=3,
+            reply_count=4,
+        ))
+        db.session.commit()
+
+        importer = RainClassImporter(str(file_path), first_id, 'admin')
+        importer.df = pd.DataFrame([{
+            '姓名': '测试学生',
+            '学号': '20260001',
+            '总成绩': 99,
+        }])
+
+        parsed, errors = importer.parse()
+        assert parsed is True
+        assert errors == []
+        assert importer._save_to_db() == 1
+        db.session.commit()
+
+        preserved = StudentBehavior.get_by_student_id(student.id)
+        assert preserved.attendance_rate == 96
+        assert preserved.ppt_view_rate == 95
+        assert preserved.video_finish_rate == 94
+        assert preserved.exercise_submit_rate == 93
+        assert preserved.exercise_score_rate == 92
+        assert preserved.discussion_count == 3
+        assert preserved.reply_count == 4
+
+
+def test_rainclass_explicit_zero_behavior_values_are_not_treated_as_missing(
+    app, two_classes, tmp_path
+):
+    first_id, _ = two_classes
+    file_path = tmp_path / '雨课堂-学习过程数据.xlsx'
+    file_path.write_bytes(b'process workbook')
+
+    with app.app_context():
+        student = Student(student_no='20260001', name='测试学生', class_id=first_id)
+        db.session.add(student)
+        db.session.flush()
+        db.session.add(StudentBehavior(student_id=student.id, attendance_rate=96))
+        db.session.commit()
+
+        importer = RainClassImporter(str(file_path), first_id, 'admin')
+        importer.df = pd.DataFrame([{
+            '姓名': '测试学生',
+            '学号': '20260001',
+            '到课率': 0,
+        }])
+
+        parsed, errors = importer.parse()
+        assert parsed is True
+        assert errors == []
+        assert importer._save_to_db() == 1
+        db.session.commit()
+
+        updated = StudentBehavior.get_by_student_id(student.id)
+        assert updated.attendance_rate == 0
 
 
 def test_calculate_file_hash_is_sha256(tmp_path):

@@ -731,13 +731,13 @@ class RainClassImporter(BaseImporter):
                 behavior_data = {
                     'student_no': student_no,
                     'name': name,
-                    'attendance_rate': extract_rate(get_scalar('到课率')),
-                    'ppt_view_rate': extract_rate(get_scalar('课件观看率')),
-                    'video_finish_rate': extract_rate(get_scalar('视频完成率')),
-                    'exercise_submit_rate': extract_rate(get_scalar('作答率')),
-                    'exercise_score_rate': extract_rate(get_scalar('得分率')),
-                    'discussion_count': safe_int(get_scalar('学生发帖数')),
-                    'reply_count': safe_int(get_scalar('学生回帖数')),
+                    'attendance_rate': extract_rate(get_scalar('到课率', None), None),
+                    'ppt_view_rate': extract_rate(get_scalar('课件观看率', None), None),
+                    'video_finish_rate': extract_rate(get_scalar('视频完成率', None), None),
+                    'exercise_submit_rate': extract_rate(get_scalar('作答率', None), None),
+                    'exercise_score_rate': extract_rate(get_scalar('得分率', None), None),
+                    'discussion_count': safe_int(get_scalar('学生发帖数', None), None),
+                    'reply_count': safe_int(get_scalar('学生回帖数', None), None),
                 }
                 
                 self.parsed_data.append(behavior_data)
@@ -777,26 +777,34 @@ class RainClassImporter(BaseImporter):
                     if data['name'] and student.name != data['name']:
                         student.name = data['name']
                 
-                # 更新或创建行为数据
-                behavior = StudentBehavior.get_by_student_id(student.id)
-                if not behavior:
-                    behavior = StudentBehavior(student_id=student.id)
-                
-                behavior.attendance_rate = data['attendance_rate']
-                behavior.ppt_view_rate = data['ppt_view_rate']
-                behavior.video_finish_rate = data['video_finish_rate']
-                behavior.exercise_submit_rate = data['exercise_submit_rate']
-                behavior.exercise_score_rate = data['exercise_score_rate']
-                behavior.discussion_count = data['discussion_count']
-                behavior.reply_count = data['reply_count']
-                
-                # 计算综合评分
-                behavior.behavior_score = behavior.calculate_behavior_score()
-                behavior.attendance_level = StudentKnowledgeMastery.calculate_mastery_level(
-                    behavior.attendance_rate
+                # 只有源文件实际包含行为列时才更新，避免成绩单等雨课堂文件
+                # 把先前导入的学习过程数据用缺省 0 覆盖。
+                behavior_fields = (
+                    'attendance_rate',
+                    'ppt_view_rate',
+                    'video_finish_rate',
+                    'exercise_submit_rate',
+                    'exercise_score_rate',
+                    'discussion_count',
+                    'reply_count',
                 )
-                
-                db.session.add(behavior)
+                has_behavior_data = any(data[field] is not None for field in behavior_fields)
+                behavior = StudentBehavior.get_by_student_id(student.id)
+                if not behavior and has_behavior_data:
+                    behavior = StudentBehavior(student_id=student.id)
+
+                if behavior and has_behavior_data:
+                    for field in behavior_fields:
+                        if data[field] is not None:
+                            setattr(behavior, field, data[field])
+
+                    # 计算综合评分
+                    behavior.behavior_score = behavior.calculate_behavior_score()
+                    behavior.attendance_level = StudentKnowledgeMastery.calculate_mastery_level(
+                        behavior.attendance_rate
+                    )
+
+                    db.session.add(behavior)
                 success_count += 1
                 
             except Exception as e:
