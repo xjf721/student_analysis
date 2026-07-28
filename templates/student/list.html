@@ -52,6 +52,7 @@
 {% block extra_js %}
 <script>
 $(function() {
+    var studentsById = {};
     loadStudents();
     
     $('#search-btn').click(function() {
@@ -69,11 +70,13 @@ $(function() {
         var url = keyword ? '/api/students?keyword=' + encodeURIComponent(keyword) : '/api/students';
         
         $.get(url, function(data) {
+            studentsById = {};
             var html = '';
             if (data.length === 0) {
                 html = currentClassEmptyRow(7);
             } else {
                 data.forEach(function(student) {
+                    studentsById[student.id] = student;
                     var behaviorScore = student.behavior ? student.behavior.behavior_score : '--';
                     var practiceScore = student.practice ? student.practice.practice_score : '--';
                     var warningLevel = student.warning ? student.warning.warning_level : 0;
@@ -94,6 +97,7 @@ $(function() {
                         '<td>' +
                             '<a href="/student/' + student.id + '" class="btn btn-sm btn-primary mr-1">画像</a>' +
                             '<a href="/student/' + student.id + '/overview" class="btn btn-sm btn-info">全览</a>' +
+                            '<button type="button" class="btn btn-sm btn-danger delete-student ml-1" data-student-id="' + student.id + '">删除</button>' +
                         '</td>' +
                         '</tr>';
                 });
@@ -101,6 +105,37 @@ $(function() {
             $('#student-table').html(html);
         });
     }
+
+    $('#student-table').on('click', '.delete-student', function() {
+        var student = studentsById[$(this).data('student-id')];
+        if (!student) {
+            alert('未找到要删除的学生，请刷新页面后重试。');
+            return;
+        }
+
+        var confirmed = confirm(
+            '确认删除学生' + student.name + '（学号：' + student.student_no + '）吗？\n' +
+            '该学生的全部学习与分析数据将被删除，此操作无法撤销。'
+        );
+        if (!confirmed) {
+            return;
+        }
+
+        $.ajax({
+            url: '/api/student/' + student.id,
+            type: 'DELETE',
+            success: function(response) {
+                alert(response.message);
+                loadStudents();
+            },
+            error: function(xhr) {
+                var message = xhr.responseJSON && xhr.responseJSON.message
+                    ? xhr.responseJSON.message
+                    : '删除学生失败，请稍后重试。';
+                alert(message);
+            }
+        });
+    });
 });
 </script>
 {% endblock %}

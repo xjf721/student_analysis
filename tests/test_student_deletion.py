@@ -147,3 +147,19 @@ def test_delete_student_rolls_back_every_record_when_commit_fails(
         assert StudentPractice.query.filter_by(student_id=student_id).count() == 1
         assert StudentKnowledgeMastery.query.filter_by(student_id=student_id).count() == 1
         assert WarningRecord.query.filter_by(student_id=student_id).count() == 1
+
+
+def test_student_list_includes_confirmed_delete_interaction(client, two_classes):
+    class_id, _ = two_classes
+    login_and_select(client, class_id)
+
+    page = client.get('/students').get_data(as_text=True)
+
+    assert 'class="btn btn-sm btn-danger delete-student ml-1"' in page
+    assert "$('#student-table').on('click', '.delete-student'" in page
+    assert "'确认删除学生' + student.name" in page
+    assert "'（学号：' + student.student_no + '）吗？" in page
+    assert '全部学习与分析数据将被删除' in page
+    assert "type: 'DELETE'" in page
+    assert 'loadStudents();' in page
+    assert "xhr.responseJSON && xhr.responseJSON.message" in page
