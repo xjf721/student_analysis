@@ -152,7 +152,7 @@ def get_knowledge_heatmap():
         热力图数据
     """
     class_id = get_active_class_id()
-    knowledge_limit = request.args.get('knowledge_limit', default=20, type=int)
+    knowledge_limit = request.args.get('knowledge_limit', type=int)
     student_limit = request.args.get('student_limit', default=50, type=int)
     
     heatmap_data = KnowledgeRepository.get_heatmap_data(

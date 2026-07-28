@@ -508,7 +508,7 @@ $(function() {
 
     function renderWarnings(warnings) {
         if (warnings.length === 0) {
-            $('#warning-table').html(currentClassEmptyRow(6));
+            $('#warning-table').html('<tr><td class="empty-row" colspan="6">暂无预警记录</td></tr>');
             return;
         }
 

@@ -11,6 +11,7 @@
 from typing import Dict, List, Optional, Tuple
 from sqlalchemy import func, desc
 from models import db, Student, ClassInfo, StudentKnowledgeMastery
+from services.knowledge_order import knowledge_name_sort_key
 
 
 class KnowledgeAnalyzer:
@@ -76,7 +77,7 @@ class KnowledgeAnalyzer:
             StudentKnowledgeMastery.knowledge_name != '__汇总__'
         ).distinct().all()
         
-        return [r[0] for r in results]
+        return sorted((r[0] for r in results), key=knowledge_name_sort_key)
     
     def get_knowledge_statistics(self) -> List[Dict]:
         """
@@ -101,13 +102,14 @@ class KnowledgeAnalyzer:
         
         results = query.all()
         
-        return [{
+        statistics = [{
             'knowledge_name': r[0],
             'avg_mastery_rate': round(r[1] or 0, 2),
             'student_count': r[2],
             'weak_count': r[3],
             'weak_ratio': round((r[3] / r[2] * 100) if r[2] > 0 else 0, 2)
         } for r in results]
+        return sorted(statistics, key=lambda item: knowledge_name_sort_key(item['knowledge_name']))
     
     def get_weak_knowledge_points(self, threshold: float = 40.0, limit: int = 10) -> List[Dict]:
         """
@@ -142,11 +144,10 @@ class KnowledgeAnalyzer:
         results = StudentKnowledgeMastery.query.filter(
             StudentKnowledgeMastery.student_id == student_id,
             StudentKnowledgeMastery.mastery_rate < threshold
-        ).order_by(
-            StudentKnowledgeMastery.mastery_rate
         ).all()
         
-        return [r.to_dict() for r in results]
+        points = [r.to_dict() for r in results]
+        return sorted(points, key=lambda item: knowledge_name_sort_key(item['knowledge_name']))
     
     def get_heatmap_data(self,
                          knowledge_limit: int = 20,
@@ -178,7 +179,7 @@ class KnowledgeAnalyzer:
             for k_idx, k_name in enumerate(knowledge_names):
                 mastery = StudentKnowledgeMastery.get_student_knowledge(student.id, k_name)
                 if mastery:
-                    data.append([s_idx, k_idx, mastery.mastery_rate])
+                    data.append([k_idx, s_idx, mastery.mastery_rate])
         
         return {
             'students': [s.name for s in students],

@@ -5,6 +5,7 @@
 from typing import List, Optional, Dict
 from sqlalchemy import func, desc
 from models import db, Student, StudentKnowledgeMastery, KnowledgePointSummary
+from services.knowledge_order import knowledge_name_sort_key
 
 
 class KnowledgeRepository:
@@ -34,7 +35,7 @@ class KnowledgeRepository:
             StudentKnowledgeMastery.knowledge_name != '__汇总__'
         ).distinct().all()
         
-        return [r[0] for r in results]
+        return sorted((r[0] for r in results), key=knowledge_name_sort_key)
     
     @staticmethod
     def get_knowledge_statistics(class_id: int) -> List[Dict]:
@@ -59,13 +60,14 @@ class KnowledgeRepository:
             desc('avg_rate')
         ).all()
         
-        return [{
+        statistics = [{
             'knowledge_name': r[0],
             'avg_mastery_rate': round(r[1] or 0, 2),
             'student_count': r[2],
             'min_rate': round(r[3] or 0, 2),
             'max_rate': round(r[4] or 0, 2)
         } for r in results]
+        return sorted(statistics, key=lambda item: knowledge_name_sort_key(item['knowledge_name']))
 
     @staticmethod
     def get_point_summary_statistics(class_id: int, limit: Optional[int] = None) -> List[Dict]:
@@ -74,15 +76,9 @@ class KnowledgeRepository:
 
         该数据来自知识点维度导出，不与学生明细平均值混合。
         """
-        query = KnowledgePointSummary.query.filter_by(class_id=class_id).order_by(
-            KnowledgePointSummary.mastery_rate.asc(),
-            KnowledgePointSummary.content_completion_rate.desc()
-        )
-
-        if limit:
-            query = query.limit(limit)
-
-        return [item.to_dict() for item in query.all()]
+        rows = [item.to_dict() for item in KnowledgePointSummary.query.filter_by(class_id=class_id).all()]
+        rows.sort(key=lambda item: knowledge_name_sort_key(item['knowledge_name']))
+        return rows[:limit] if limit else rows
     
     @staticmethod
     def get_weak_knowledge_points(class_id: int, threshold: float = 40.0) -> List[str]:
@@ -144,7 +140,7 @@ class KnowledgeRepository:
     
     @staticmethod
     def get_heatmap_data(class_id: int,
-                         knowledge_limit: int = 20,
+                         knowledge_limit: Optional[int] = 20,
                          student_limit: int = 50) -> Dict:
         """
         获取知识点热力图数据
@@ -158,25 +154,42 @@ class KnowledgeRepository:
             热力图数据
         """
         # 获取知识点列表
-        knowledge_stats = KnowledgeRepository.get_knowledge_statistics(class_id)[:knowledge_limit]
+        knowledge_stats = KnowledgeRepository.get_knowledge_statistics(class_id)
+        if knowledge_limit and knowledge_limit > 0:
+            knowledge_stats = knowledge_stats[:knowledge_limit]
         knowledge_names = [k['knowledge_name'] for k in knowledge_stats]
         
         if not knowledge_names:
-            return {'students': [], 'knowledge': [], 'data': []}
+            return {'students': [], 'knowledge': [], 'data': [], 'missing_value': -1}
         
         # 获取学生列表
-        students = Student.query.filter_by(class_id=class_id).limit(student_limit).all()
+        students = Student.query.filter_by(class_id=class_id).order_by(
+            Student.student_no.asc()
+        ).limit(student_limit).all()
+
+        student_ids = [student.id for student in students]
+        masteries = StudentKnowledgeMastery.query.filter(
+            StudentKnowledgeMastery.student_id.in_(student_ids),
+            StudentKnowledgeMastery.knowledge_name.in_(knowledge_names)
+        ).all() if student_ids else []
+        mastery_map = {
+            (mastery.student_id, mastery.knowledge_name): mastery.mastery_rate
+            for mastery in masteries
+        }
         
-        # 构建数据矩阵
-        data = []
-        for s_idx, student in enumerate(students):
+        # ECharts 热力图坐标为 [横轴知识点, 纵轴学生, 掌握率]。
+        data = [
+            [k_idx, 0, stat['avg_mastery_rate']]
+            for k_idx, stat in enumerate(knowledge_stats)
+        ]
+        for s_idx, student in enumerate(students, start=1):
             for k_idx, k_name in enumerate(knowledge_names):
-                mastery = StudentKnowledgeMastery.get_student_knowledge(student.id, k_name)
-                if mastery:
-                    data.append([s_idx, k_idx, mastery.mastery_rate])
+                value = mastery_map.get((student.id, k_name), -1)
+                data.append([k_idx, s_idx, value])
         
         return {
-            'students': [s.name for s in students],
+            'students': ['班级平均'] + [f'{s.name}（{s.student_no}）' for s in students],
             'knowledge': knowledge_names,
-            'data': data
+            'data': data,
+            'missing_value': -1
         }

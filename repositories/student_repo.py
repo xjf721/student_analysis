@@ -2,7 +2,6 @@
 """
 学生数据访问层
 """
-import re
 from typing import List, Optional, Dict
 from sqlalchemy import func
 from models import (
@@ -13,21 +12,7 @@ from models import (
     StudentAssignmentDetail,
     StudentAssignmentChallenge,
 )
-
-
-def _knowledge_chapter_no(knowledge_name: str) -> str:
-    """提取知识点开头的章节号，如 4.7.2。"""
-    match = re.match(r'^\s*(\d+(?:\.\d+)*)', knowledge_name or '')
-    return match.group(1) if match else ''
-
-
-def _knowledge_sort_key(point: Dict):
-    """按章节号自然排序，未带章节号的知识点放在最后。"""
-    chapter_no = point.get('chapter_no') or _knowledge_chapter_no(point.get('knowledge_name', ''))
-    if not chapter_no:
-        return (1, (), point.get('knowledge_name') or '')
-    parts = tuple(int(part) for part in chapter_no.split('.') if part.isdigit())
-    return (0, parts, point.get('knowledge_name') or '')
+from services.knowledge_order import extract_knowledge_sequence, knowledge_name_sort_key
 
 
 def _read_educoder_assignment_details(student_id: int) -> List[Dict]:
@@ -286,13 +271,18 @@ class StudentRepository:
                     knowledge_overview['overall_correct_rate'] = m.correct_rate
                     continue
 
-                point['chapter_no'] = _knowledge_chapter_no(m.knowledge_name)
+                sequence = extract_knowledge_sequence(m.knowledge_name)
+                point['chapter_no'] = '.'.join(str(part) for part in sequence) if sequence else ''
                 knowledge_overview['all_points'].append(point)
                 if m.mastery_rate < weak_threshold:
                     knowledge_overview['weak_points'].append(point)
             
-            knowledge_overview['all_points'].sort(key=_knowledge_sort_key)
-            knowledge_overview['weak_points'].sort(key=lambda x: (x.get('mastery_rate') or 0, _knowledge_sort_key(x)))
+            knowledge_overview['all_points'].sort(
+                key=lambda point: knowledge_name_sort_key(point.get('knowledge_name', ''))
+            )
+            knowledge_overview['weak_points'].sort(
+                key=lambda point: knowledge_name_sort_key(point.get('knowledge_name', ''))
+            )
 
             points = knowledge_overview['all_points']
             completion_points = [p for p in points if p.get('completion_rate') is not None]

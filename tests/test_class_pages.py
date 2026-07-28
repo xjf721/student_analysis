@@ -195,9 +195,34 @@ def test_student_overview_empty_renderers_use_current_class_import_rows():
         ('#knowledge-summary-table', 2),
         ('#knowledge-table', 9),
         ('#assignment-table', 11),
-        ('#warning-table', 6),
     ]:
         assert "$(%r).html(currentClassEmptyRow(%d));" % (selector, colspan) in template
+
+
+def test_student_overview_without_warnings_shows_neutral_empty_row():
+    template = (PROJECT_ROOT / 'templates/student/overview.html').read_text(encoding='utf-8')
+
+    expected = "$('#warning-table').html('<tr><td class=\"empty-row\" colspan=\"6\">暂无预警记录</td></tr>');"
+    assert expected in template
+    assert "$('#warning-table').html(currentClassEmptyRow(6));" not in template
+
+
+def test_knowledge_heatmap_wires_xy_coordinates_and_zoom_controls():
+    template = (PROJECT_ROOT / 'templates/knowledge/index.html').read_text(encoding='utf-8')
+
+    assert "$.get('/api/knowledge/heatmap?student_limit=200'" in template
+    assert "data.students[params.value[1]]" in template
+    assert "data.knowledge[params.value[0]]" in template
+    assert "params.value[2] < 0 ? '暂无数据'" in template
+    assert "xAxisIndex: 0" in template
+    assert "yAxisIndex: 0" in template
+
+
+def test_dashboard_heatmap_tooltip_uses_corrected_xy_coordinates():
+    template = (PROJECT_ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
+
+    assert "data.students[params.value[1]]" in template
+    assert "data.knowledge[params.value[0]]" in template
 
 
 def test_each_data_loader_uses_a_class_aware_empty_row():

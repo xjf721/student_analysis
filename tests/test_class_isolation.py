@@ -177,8 +177,90 @@ def test_query_class_id_cannot_override_session(app, client, two_classes):
 
     assert [item['class_id'] for item in students] == [first_id]
     assert warning_stats['total_warnings'] == 1
-    assert heatmap['students'] == ['一班学生']
+    assert heatmap['students'] == ['班级平均', '一班学生（20260001）']
     assert heatmap['knowledge'] == ['当前班知识点']
+
+
+def test_knowledge_heatmap_uses_natural_knowledge_order_and_xy_coordinates(
+    app, client, two_classes
+):
+    first_id, _ = two_classes
+    with app.app_context():
+        first = Student(student_no='20260001', name='甲', class_id=first_id)
+        second = Student(student_no='20260002', name='乙', class_id=first_id)
+        db.session.add_all([first, second])
+        db.session.flush()
+        db.session.add_all([
+            StudentKnowledgeMastery(student_id=first.id, knowledge_name='1.10 栈', mastery_rate=60),
+            StudentKnowledgeMastery(student_id=first.id, knowledge_name='1.2 线性表', mastery_rate=20),
+            StudentKnowledgeMastery(student_id=first.id, knowledge_name='2 树', mastery_rate=80),
+            StudentKnowledgeMastery(student_id=second.id, knowledge_name='1.2 线性表', mastery_rate=40),
+            StudentKnowledgeMastery(student_id=second.id, knowledge_name='2 树', mastery_rate=60),
+            StudentKnowledgeMastery(student_id=second.id, knowledge_name='补充知识', mastery_rate=90),
+        ])
+        db.session.commit()
+
+    login_and_select(client, first_id)
+    heatmap = client.get('/api/knowledge/heatmap').get_json()
+
+    assert heatmap['knowledge'] == ['1.2 线性表', '1.10 栈', '2 树', '补充知识']
+    assert heatmap['students'] == ['班级平均', '甲（20260001）', '乙（20260002）']
+    assert heatmap['missing_value'] == -1
+    values = {(x, y): value for x, y, value in heatmap['data']}
+    assert values == {
+        (0, 0): 30.0, (1, 0): 60.0, (2, 0): 70.0, (3, 0): 90.0,
+        (0, 1): 20.0, (1, 1): 60.0, (2, 1): 80.0, (3, 1): -1,
+        (0, 2): 40.0, (1, 2): -1, (2, 2): 60.0, (3, 2): 90.0,
+    }
+
+
+def test_knowledge_analysis_heatmap_returns_all_knowledge_points_by_default(
+    app, client, two_classes
+):
+    first_id, _ = two_classes
+    with app.app_context():
+        student = Student(student_no='20260001', name='甲', class_id=first_id)
+        db.session.add(student)
+        db.session.flush()
+        db.session.add_all([
+            StudentKnowledgeMastery(
+                student_id=student.id,
+                knowledge_name=f'{index} 知识点',
+                mastery_rate=index,
+            )
+            for index in range(1, 22)
+        ])
+        db.session.commit()
+
+    login_and_select(client, first_id)
+    heatmap = client.get('/api/knowledge/heatmap').get_json()
+
+    assert len(heatmap['knowledge']) == 21
+    assert heatmap['knowledge'][0] == '1 知识点'
+    assert heatmap['knowledge'][-1] == '21 知识点'
+
+
+def test_student_weak_points_are_sorted_by_knowledge_sequence(app, client, two_classes):
+    first_id, _ = two_classes
+    with app.app_context():
+        student = Student(student_no='20260001', name='甲', class_id=first_id)
+        db.session.add(student)
+        db.session.flush()
+        db.session.add_all([
+            StudentKnowledgeMastery(student_id=student.id, knowledge_name='10 图', mastery_rate=10),
+            StudentKnowledgeMastery(student_id=student.id, knowledge_name='2 树', mastery_rate=30),
+            StudentKnowledgeMastery(student_id=student.id, knowledge_name='1.10 栈', mastery_rate=20),
+            StudentKnowledgeMastery(student_id=student.id, knowledge_name='1.2 线性表', mastery_rate=50),
+        ])
+        db.session.commit()
+        student_id = student.id
+
+    login_and_select(client, first_id)
+    points = client.get(f'/api/student/{student_id}/weak-points').get_json()
+
+    assert [point['knowledge_name'] for point in points] == [
+        '1.2 线性表', '1.10 栈', '2 树', '10 图'
+    ]
 
 
 def test_debug_stats_endpoint_is_removed(client, two_classes):
