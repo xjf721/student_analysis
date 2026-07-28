@@ -215,6 +215,7 @@ class BehaviorAnalyzer:
         stats = self.get_class_statistics()
         
         return {
+            'behavior_count': stats['total_count'],
             'indicator': [
                 {'name': '到课率', 'max': 100},
                 {'name': '视频完成率', 'max': 100},

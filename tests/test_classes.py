@@ -97,6 +97,18 @@ def test_edit_class_updates_allowed_fields_and_rejects_invalid_payload(client, t
     assert invalid.get_json()['error'] == 'invalid_class_payload'
 
 
+def test_class_page_restores_the_last_browser_class_selection(client, two_classes):
+    login(client)
+
+    page = client.get('/classes').get_data(as_text=True)
+
+    assert "student-analysis:last-class-id" in page
+    assert "localStorage.getItem(lastClassStorageKey)" in page
+    assert "localStorage.setItem(lastClassStorageKey" in page
+    assert "localStorage.removeItem(lastClassStorageKey)" in page
+    assert "$.post('/api/classes/' + rememberedClassId + '/select')" in page
+
+
 def test_selecting_archived_class_is_rejected_without_setting_active_class(client, two_classes):
     login(client)
     first_id, _ = two_classes

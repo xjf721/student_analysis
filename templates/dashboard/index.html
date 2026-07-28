@@ -176,8 +176,8 @@ $(function() {
     function loadRadarChart() {
         var chart;
         $.get('/api/radar', function(data) {
-            if (!data.student_count) {
-                renderCurrentClassEmptyChart('#radar-chart');
+            if (!data.behavior_count) {
+                renderCurrentClassEmptyChart('#radar-chart', '当前班级暂无学习行为数据');
                 return;
             }
             chart = echarts.init(document.getElementById('radar-chart'));

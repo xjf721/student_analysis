@@ -71,6 +71,7 @@ def get_radar_data():
     if not student_count:
         return jsonify({
             'student_count': 0,
+            'behavior_count': 0,
             'indicator': [],
             'values': [],
         })
@@ -78,6 +79,9 @@ def get_radar_data():
     analyzer = BehaviorAnalyzer(class_id)
     radar_data = analyzer.get_radar_data()
     radar_data['student_count'] = student_count
+    if not radar_data['behavior_count']:
+        radar_data['indicator'] = []
+        radar_data['values'] = []
     
     return jsonify(radar_data)
 

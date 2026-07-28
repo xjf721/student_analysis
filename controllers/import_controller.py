@@ -15,8 +15,17 @@ from pathlib import Path
 from uuid import uuid4
 
 from models import (
+    db,
     ImportRecord,
     ClassInfo,
+    KnowledgePointSummary,
+    Student,
+    StudentAssignmentChallenge,
+    StudentAssignmentDetail,
+    StudentBehavior,
+    StudentKnowledgeMastery,
+    StudentPractice,
+    WarningRecord,
 )
 from services.importers import (
     RainClassImporter,
@@ -475,6 +484,59 @@ def run_analysis():
         return jsonify({
             'success': False,
             'message': f'分析失败: {str(e)}'
+        }), 500
+
+
+@import_bp.route('/api/import/clear-current', methods=['POST'])
+@require_active_class
+def clear_current_class_data():
+    """清空当前班级的导入及分析数据，但保留班级和其他班级。"""
+    class_id = get_active_class_id()
+    try:
+        student_ids = [
+            student_id
+            for (student_id,) in db.session.query(Student.id)
+            .filter(Student.class_id == class_id)
+            .all()
+        ]
+        deleted = {}
+        for model in (
+            StudentAssignmentChallenge,
+            StudentAssignmentDetail,
+            WarningRecord,
+            StudentKnowledgeMastery,
+            StudentBehavior,
+            StudentPractice,
+        ):
+            deleted[model.__tablename__] = (
+                model.query.filter(model.student_id.in_(student_ids))
+                .delete(synchronize_session=False)
+                if student_ids else 0
+            )
+        deleted[Student.__tablename__] = (
+            Student.query.filter_by(class_id=class_id).delete(synchronize_session=False)
+        )
+        deleted[KnowledgePointSummary.__tablename__] = (
+            KnowledgePointSummary.query.filter_by(class_id=class_id)
+            .delete(synchronize_session=False)
+        )
+        deleted[ImportRecord.__tablename__] = (
+            ImportRecord.query.filter_by(class_id=class_id)
+            .delete(synchronize_session=False)
+        )
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'class_id': class_id,
+            'deleted': deleted,
+            'deleted_count': sum(deleted.values()),
+            'message': '当前班级数据已清空',
+        })
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': f'清空失败: {exc}',
         }), 500
 
 

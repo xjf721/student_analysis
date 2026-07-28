@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from models import Student, db
+from models import Student, StudentBehavior, db
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -82,18 +82,85 @@ def test_empty_class_radar_contract_prevents_dashboard_chart_rendering(client, t
     assert stats.get_json()['total_students'] == 0
     assert radar.status_code == 200
     assert radar.get_json() == {
+        'behavior_count': 0,
         'indicator': [],
         'student_count': 0,
         'values': [],
     }
 
 
-def test_dashboard_radar_checks_the_api_student_count_before_initializing_echarts():
+def test_class_radar_reports_behavior_coverage(app, client, two_classes):
+    first_id, _ = two_classes
+    with app.app_context():
+        student = Student(student_no='20260001', name='有行为数据学生', class_id=first_id)
+        db.session.add(student)
+        db.session.flush()
+        db.session.add(StudentBehavior(
+            student_id=student.id,
+            attendance_rate=90,
+            video_finish_rate=70,
+            exercise_submit_rate=60,
+            exercise_score_rate=50,
+            ppt_view_rate=80,
+        ))
+        db.session.commit()
+
+    login_and_select(client, first_id)
+    response = client.get('/api/radar')
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        'behavior_count': 1,
+        'indicator': [
+            {'max': 100, 'name': '到课率'},
+            {'max': 100, 'name': '视频完成率'},
+            {'max': 100, 'name': '作业提交率'},
+            {'max': 100, 'name': '作业得分率'},
+            {'max': 100, 'name': 'PPT查看率'},
+        ],
+        'student_count': 1,
+        'values': [90.0, 70.0, 60.0, 50.0, 80.0],
+    }
+
+
+def test_students_without_behavior_return_an_explicit_empty_class_radar(app, client, two_classes):
+    first_id, _ = two_classes
+    with app.app_context():
+        db.session.add(Student(student_no='20260001', name='无行为数据学生', class_id=first_id))
+        db.session.commit()
+
+    login_and_select(client, first_id)
+    response = client.get('/api/radar')
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        'behavior_count': 0,
+        'indicator': [],
+        'student_count': 1,
+        'values': [],
+    }
+
+
+def test_dashboard_radar_checks_behavior_coverage_before_initializing_echarts():
     template = (PROJECT_ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
 
-    guard = "if (!data.student_count) {\n                renderCurrentClassEmptyChart('#radar-chart');\n                return;\n            }"
+    guard = "if (!data.behavior_count) {\n                renderCurrentClassEmptyChart('#radar-chart', '当前班级暂无学习行为数据');\n                return;\n            }"
     assert guard in template
     assert template.index(guard) < template.index("echarts.init(document.getElementById('radar-chart'))")
+
+
+def test_dashboard_uses_bundled_echarts(client, two_classes):
+    first_id, _ = two_classes
+    login_and_select(client, first_id)
+
+    page = client.get('/').get_data(as_text=True)
+
+    assert '/static/vendor/echarts/echarts.min.js' in page
+    assert 'cdn.jsdelivr.net/npm/echarts' not in page
+
+    asset = client.get('/static/vendor/echarts/echarts.min.js')
+    assert asset.status_code == 200
+    assert len(asset.data) > 500_000
 
 
 def test_student_detail_radar_uses_empty_state_before_chart_initialization():

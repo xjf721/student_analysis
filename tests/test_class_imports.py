@@ -7,7 +7,9 @@ import pytest
 from models import (
     ClassInfo,
     ImportRecord,
+    KnowledgePointSummary,
     Student,
+    StudentBehavior,
     StudentKnowledgeMastery,
     db,
 )
@@ -555,7 +557,61 @@ def test_clear_all_web_endpoint_is_removed(client, two_classes):
     assert client.post('/api/import/clear-all').status_code == 404
 
 
-def test_general_import_page_has_target_class_picker_and_no_clear_button(
+def test_clear_current_class_data_preserves_other_classes(app, client, two_classes):
+    first_id, second_id = two_classes
+    with app.app_context():
+        first_student = Student(student_no='20260001', name='一班学生', class_id=first_id)
+        second_student = Student(student_no='20260002', name='二班学生', class_id=second_id)
+        db.session.add_all([first_student, second_student])
+        db.session.flush()
+        db.session.add_all([
+            StudentBehavior(student_id=first_student.id, attendance_rate=80),
+            StudentBehavior(student_id=second_student.id, attendance_rate=90),
+            StudentKnowledgeMastery(
+                student_id=first_student.id, knowledge_name='一班知识点', mastery_rate=60
+            ),
+            StudentKnowledgeMastery(
+                student_id=second_student.id, knowledge_name='二班知识点', mastery_rate=70
+            ),
+            KnowledgePointSummary(class_id=first_id, knowledge_name='一班汇总'),
+            KnowledgePointSummary(class_id=second_id, knowledge_name='二班汇总'),
+            ImportRecord(
+                class_id=first_id,
+                filename='first.xlsx',
+                file_hash='1' * 64,
+                uploaded_by='admin',
+                import_type='test',
+                import_status='成功',
+            ),
+            ImportRecord(
+                class_id=second_id,
+                filename='second.xlsx',
+                file_hash='2' * 64,
+                uploaded_by='admin',
+                import_type='test',
+                import_status='成功',
+            ),
+        ])
+        db.session.commit()
+
+    login_and_select(client, first_id)
+    response = client.post('/api/import/clear-current')
+
+    assert response.status_code == 200
+    assert response.get_json()['class_id'] == first_id
+    with app.app_context():
+        assert ClassInfo.query.count() == 2
+        assert Student.query.filter_by(class_id=first_id).count() == 0
+        assert Student.query.filter_by(class_id=second_id).count() == 1
+        assert StudentBehavior.query.count() == 1
+        assert StudentKnowledgeMastery.query.count() == 1
+        assert KnowledgePointSummary.query.filter_by(class_id=first_id).count() == 0
+        assert KnowledgePointSummary.query.filter_by(class_id=second_id).count() == 1
+        assert ImportRecord.query.filter_by(class_id=first_id).count() == 0
+        assert ImportRecord.query.filter_by(class_id=second_id).count() == 1
+
+
+def test_general_import_page_has_target_class_picker_and_current_class_clear_button(
     client, two_classes
 ):
     first_id, second_id = two_classes
@@ -586,7 +642,9 @@ def test_general_import_page_has_target_class_picker_and_no_clear_button(
     assert 'if (!retrying)' in html
     assert ".prop('disabled', true)" in html
     assert ".prop('disabled', false)" in html
-    assert 'clear-data-btn' not in html
+    assert 'id="clear-current-class-btn"' in html
+    assert '/api/import/clear-current' in html
+    assert '只清空当前班级' in html
     assert '/api/import/clear-all' not in html
 
 
