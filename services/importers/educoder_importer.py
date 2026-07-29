@@ -33,6 +33,12 @@ class EducoderImporter(BaseImporter):
     
     负责导入学生的实验总成绩和活跃度数据
     """
+
+    PRACTICE_GROUP_NAMES = ('实践训练', '课堂实验', '课程实训')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.practice_training_count = 0
     
     @property
     def import_type(self) -> str:
@@ -114,14 +120,20 @@ class EducoderImporter(BaseImporter):
                 
                 name = clean_name(row.get(name_col)) if name_col else None
 
-                total_score = self._extract_final_score(row)
                 personal_total_score = safe_float(row.get('个人总成绩'), None)
+                total_score = self._calculate_total_score(
+                    personal_total_score,
+                    self.practice_training_count,
+                )
+                if total_score is None:
+                    total_score = self._extract_final_score(row)
                 
                 practice_data = {
                     'student_no': student_no,
                     'name': name,
                     'total_score': total_score,
                     'personal_total_score': personal_total_score,
+                    'practice_training_count': self.practice_training_count,
                 }
                 
                 self.parsed_data.append(practice_data)
@@ -131,6 +143,88 @@ class EducoderImporter(BaseImporter):
         
         self.errors = errors
         return len(self.parsed_data) > 0, errors
+
+    def _read_file(self) -> pd.DataFrame:
+        """读取头歌两行表头，并统计实践训练分组下的实训数量。"""
+        raw_df = read_excel_smart(
+            self.file_path,
+            sheet_name='学生总成绩',
+            header=None,
+        )
+        return self._parse_total_score_headers(raw_df)
+
+    def _parse_total_score_headers(self, raw_df: pd.DataFrame) -> pd.DataFrame:
+        """将总成绩表的父/子两行表头转换成可解析的单行表头。"""
+        header_row = self._find_total_score_header_row(raw_df)
+        if header_row is None or header_row + 1 >= len(raw_df):
+            self.practice_training_count = 0
+            return raw_df
+
+        parent_headers = raw_df.iloc[header_row]
+        child_headers = raw_df.iloc[header_row + 1]
+        group_start = self._find_practice_group_start(parent_headers)
+        group_end = self._find_group_end(parent_headers, group_start)
+        self.practice_training_count = max(group_end - group_start, 0)
+
+        columns = []
+        for position, parent in enumerate(parent_headers):
+            if group_start <= position < group_end and pd.notna(child_headers.iloc[position]):
+                columns.append(str(child_headers.iloc[position]).strip())
+            elif pd.notna(parent) and str(parent).strip():
+                columns.append(str(parent).strip())
+            else:
+                columns.append(f'未命名列_{position}')
+
+        data = raw_df.iloc[header_row + 2:].copy().reset_index(drop=True)
+        data.columns = self._make_unique_columns(columns)
+        return data.dropna(how='all')
+
+    @staticmethod
+    def _find_total_score_header_row(raw_df: pd.DataFrame) -> Optional[int]:
+        """查找包含个人总成绩的父表头行。"""
+        for row_index in range(min(len(raw_df), 10)):
+            values = {str(value).strip() for value in raw_df.iloc[row_index] if pd.notna(value)}
+            if '个人总成绩' in values:
+                return row_index
+        return None
+
+    def _find_practice_group_start(self, parent_headers: pd.Series) -> int:
+        """定位实践训练（兼容旧导出的课堂实验）父列。"""
+        for position, value in enumerate(parent_headers):
+            if pd.notna(value) and str(value).strip() in self.PRACTICE_GROUP_NAMES:
+                return position
+        return len(parent_headers)
+
+    @staticmethod
+    def _find_group_end(parent_headers: pd.Series, group_start: int) -> int:
+        """以父表头中的下一个非空单元格作为实践训练分组终点。"""
+        if group_start >= len(parent_headers):
+            return group_start
+        for position in range(group_start + 1, len(parent_headers)):
+            value = parent_headers.iloc[position]
+            if pd.notna(value) and str(value).strip():
+                return position
+        return len(parent_headers)
+
+    @staticmethod
+    def _make_unique_columns(columns: List[str]) -> List[str]:
+        """保持首个列名不变，并为后续重复列名添加序号。"""
+        counts: Dict[str, int] = {}
+        unique_columns = []
+        for column in columns:
+            count = counts.get(column, 0)
+            unique_columns.append(column if count == 0 else f'{column}_{count}')
+            counts[column] = count + 1
+        return unique_columns
+
+    @staticmethod
+    def _calculate_total_score(personal_total_score: Optional[float],
+                               practice_training_count: int) -> Optional[float]:
+        """按实训满分合计折算百分制：总分/(实训数*100)*100。"""
+        if personal_total_score is None or practice_training_count <= 0:
+            return None
+        score = personal_total_score / practice_training_count
+        return round(max(0.0, min(score, 100.0)), 2)
 
     def _extract_final_score(self, row) -> float:
         """从头歌总成绩表提取平台百分制最终成绩。"""

@@ -166,7 +166,7 @@ class StudentRepository:
             'diff': round(diff, 2),
             'type': type_name,
             'theory_source': '雨课堂行为综合评分',
-            'practice_source': '头歌总成绩/平均实验分/活跃度归一化综合评分'
+            'practice_source': '头歌个人总成绩按实践训练数量折算为百分制'
         }
 
     @staticmethod

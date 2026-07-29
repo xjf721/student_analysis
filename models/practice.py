@@ -54,27 +54,15 @@ class StudentPractice(BaseModel):
     
     def calculate_practice_score(self) -> float:
         """
-        计算实践能力综合评分
-        
-        评分权重：
-        - 实验总成绩：40%
-        - 活跃度分数：30%
-        - 平均实验分数：30%
+        计算实践成绩。
+
+        头歌总成绩导入器已经按“个人总成绩 / 实训数量”折算为百分制，
+        因此实践成绩直接使用该折算结果；活跃度和平均实验分作为独立分析指标。
         
         Returns:
-            综合评分(0-100)
+            实践成绩(0-100)
         """
-        total_score = self.normalize_score(self.total_score)
-        activity_score = self.normalize_activity_score(self.activity_score)
-        avg_experiment_score = self.normalize_score(self.avg_experiment_score)
-
-        score = (
-            total_score * 0.40 +
-            activity_score * 0.30 +
-            avg_experiment_score * 0.30
-        )
-        
-        return round(score, 2)
+        return self.normalize_score(self.total_score)
 
     @staticmethod
     def normalize_score(value: Optional[float]) -> float:
