@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}班级管理{% endblock %}
+{% block content %}
+<section class="content pt-3">
+  <div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h1 class="h3 mb-0">班级管理</h1>
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#create-class-modal">新建班级</button>
+    </div>
+    <div class="row">
+      {% for entry in classes %}
+      {% set item = entry.item %}
+      <div class="col-md-6 col-xl-4">
+        <div class="card {% if item.status == 'archived' %}card-secondary{% else %}card-primary{% endif %}">
+          <div class="card-header"><h3 class="card-title">{{ item.class_name }}</h3><span class="float-right">{{ '已归档' if item.status == 'archived' else '进行中' }}</span></div>
+          <div class="card-body">
+            <p class="mb-1">学期：{{ item.term or '未填写' }}</p>
+            <p class="mb-1">教师：{{ item.teacher_name or '未填写' }}</p>
+            <p class="mb-3">学生 {{ entry.overview.student_count }} 人 · 导入 {{ entry.overview.import_count }} 次</p>
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('classes.detail', class_id=item.id) }}">查看</a>
+            <button class="btn btn-outline-primary btn-sm edit-class" data-id="{{ item.id }}" data-class-name="{{ item.class_name }}" data-teacher-name="{{ item.teacher_name or '' }}" data-term="{{ item.term or '' }}" data-notes="{{ item.notes or '' }}" data-bs-toggle="modal" data-bs-target="#edit-class-modal">编辑</button>
+            {% if item.status == 'active' %}
+            <button class="btn btn-success btn-sm select-class" data-id="{{ item.id }}">设为当前</button>
+            <button class="btn btn-outline-secondary btn-sm state-class" data-id="{{ item.id }}" data-action="archive">归档</button>
+            {% else %}
+            <button class="btn btn-outline-success btn-sm state-class" data-id="{{ item.id }}" data-action="restore">恢复</button>
+            {% endif %}
+            <button class="btn btn-outline-danger btn-sm delete-class" data-id="{{ item.id }}">删除</button>
+          </div>
+        </div>
+      </div>
+      {% else %}
+      <div class="col-12"><div class="alert alert-info">暂无班级，请先创建一个班级。</div></div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+<div class="modal fade" id="create-class-modal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" id="create-class-form"><div class="modal-header"><h5 class="modal-title">新建班级</h5></div><div class="modal-body"><input class="form-control mb-2" name="class_name" placeholder="班级名称" required><input class="form-control mb-2" name="term" placeholder="学期"><input class="form-control mb-2" name="teacher_name" placeholder="任课教师"><textarea class="form-control" name="notes" placeholder="备注"></textarea></div><div class="modal-footer"><button class="btn btn-primary" type="submit">创建</button></div></form></div></div>
+<div class="modal fade" id="edit-class-modal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" id="edit-class-form"><div class="modal-header"><h5 class="modal-title">编辑班级</h5></div><div class="modal-body"><input type="hidden" name="id"><input class="form-control mb-2" name="class_name" placeholder="班级名称" required><input class="form-control mb-2" name="term" placeholder="学期"><input class="form-control mb-2" name="teacher_name" placeholder="任课教师"><textarea class="form-control" name="notes" placeholder="备注"></textarea></div><div class="modal-footer"><button class="btn btn-primary" type="submit">保存</button></div></form></div></div>
+{% endblock %}
+{% block extra_js %}
+<script>
+$('#create-class-form').on('submit', function (event) { event.preventDefault(); $.ajax({url:'/api/classes', type:'POST', contentType:'application/json', data:JSON.stringify(Object.fromEntries(new FormData(this))), success:function(){ location.reload(); }}); });
+$('.edit-class').on('click', function () { var form = document.getElementById('edit-class-form'); form.elements.id.value = this.dataset.id; form.elements.class_name.value = this.dataset.className; form.elements.teacher_name.value = this.dataset.teacherName; form.elements.term.value = this.dataset.term; form.elements.notes.value = this.dataset.notes; });
+$('#edit-class-form').on('submit', function (event) { event.preventDefault(); var data = Object.fromEntries(new FormData(this)); var classId = data.id; delete data.id; $.ajax({url:'/api/classes/' + classId, type:'PATCH', contentType:'application/json', data:JSON.stringify(data), success:function(){ location.reload(); }}); });
+$('.select-class').on('click', function () { $.post('/api/classes/' + this.dataset.id + '/select', function (data) { location.href = data.redirect; }); });
+$('.state-class').on('click', function () {
+  if (this.dataset.action === 'archive' && !confirm('确认归档这个班级吗？归档后将不能继续上传数据。')) {
+    return;
+  }
+  $.post('/api/classes/' + this.dataset.id + '/' + this.dataset.action, function () { location.reload(); });
+});
+$('.delete-class').on('click', function () { if (confirm('确认删除这个空班级吗？')) { $.ajax({url:'/api/classes/' + this.dataset.id, type:'DELETE', success:function(){ location.reload(); }, error:function(xhr){ alert(xhr.responseJSON.error === 'class_has_data' ? '班级已有数据，不能删除。' : '删除失败。'); }}); } });
+</script>
+{% endblock %}

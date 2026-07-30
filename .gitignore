@@ -96,5 +96,15 @@ build/
 .vscode/
 venv/
 
-test_*.py
+uploads/*.xlsx
+uploads/*.xls
+/test_*.py
 
+~$*.*
+
+# 导出目录
+export/
+
+# 本地原始教学数据与隔离工作区
+new-datas/
+.worktrees/

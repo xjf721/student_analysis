@@ -20,13 +20,15 @@ class BehaviorAnalyzer:
     分析学生的学习行为数据并生成综合评分
     """
     
-    def __init__(self, class_id: Optional[int] = None):
+    def __init__(self, class_id: int):
         """
         初始化行为分析器
         
         Args:
             class_id: 班级ID，如果指定则只分析该班级
         """
+        if not class_id:
+            raise ValueError('class_id is required')
         self.class_id = class_id
     
     def analyze_all(self) -> Dict:
@@ -56,12 +58,7 @@ class BehaviorAnalyzer:
         Returns:
             学生列表
         """
-        query = Student.query
-        
-        if self.class_id:
-            query = query.filter_by(class_id=self.class_id)
-        
-        return query.all()
+        return Student.query.filter_by(class_id=self.class_id).all()
     
     def _analyze_student(self, student: Student) -> None:
         """
@@ -133,7 +130,7 @@ class BehaviorAnalyzer:
         else:
             return 0  # 正常
     
-    def get_class_statistics(self, class_id: Optional[int] = None) -> Dict:
+    def get_class_statistics(self) -> Dict:
         """
         获取班级行为统计数据
         
@@ -153,8 +150,7 @@ class BehaviorAnalyzer:
             func.count(StudentBehavior.id).label('total_count')
         )
         
-        if class_id:
-            query = query.join(Student).filter(Student.class_id == class_id)
+        query = query.join(Student).filter(Student.class_id == self.class_id)
         
         result = query.first()
         
@@ -192,6 +188,7 @@ class BehaviorAnalyzer:
         """
         results = db.session.query(Student, StudentBehavior)\
             .join(StudentBehavior, Student.id == StudentBehavior.student_id)\
+            .filter(Student.class_id == self.class_id)\
             .filter(StudentBehavior.attendance_rate < threshold)\
             .order_by(StudentBehavior.attendance_rate)\
             .limit(limit)\
@@ -205,7 +202,7 @@ class BehaviorAnalyzer:
             'behavior_score': behavior.behavior_score
         } for student, behavior in results]
     
-    def get_radar_data(self, class_id: Optional[int] = None) -> Dict:
+    def get_radar_data(self) -> Dict:
         """
         获取班级画像雷达图数据
         
@@ -215,9 +212,10 @@ class BehaviorAnalyzer:
         Returns:
             雷达图数据
         """
-        stats = self.get_class_statistics(class_id)
+        stats = self.get_class_statistics()
         
         return {
+            'behavior_count': stats['total_count'],
             'indicator': [
                 {'name': '到课率', 'max': 100},
                 {'name': '视频完成率', 'max': 100},

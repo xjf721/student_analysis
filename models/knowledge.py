@@ -21,6 +21,8 @@ class StudentKnowledgeMastery(BaseModel):
     student_id = Column(Integer, ForeignKey('student.id'), nullable=False, comment='学生ID')
     knowledge_name = Column(String(200), nullable=False, comment='知识点名称')
     mastery_rate = Column(Float, default=0.0, comment='掌握率(%)')
+    completion_rate = Column(Float, nullable=True, comment='完成率(%)')
+    correct_rate = Column(Float, nullable=True, comment='自测习题正确率/正确率(%)')
     mastery_level = Column(Integer, default=0, comment='掌握等级：0未掌握/1入门/2熟练/3精通')
     source = Column(String(50), nullable=True, comment='数据来源：雨课堂/头歌')
     
@@ -117,6 +119,8 @@ class StudentKnowledgeMastery(BaseModel):
             'student_name': self.student.name if self.student else None,
             'knowledge_name': self.knowledge_name,
             'mastery_rate': self.mastery_rate,
+            'completion_rate': self.completion_rate,
+            'correct_rate': self.correct_rate,
             'mastery_level': self.mastery_level,
             'mastery_level_name': self.get_level_name(self.mastery_level),
             'source': self.source,

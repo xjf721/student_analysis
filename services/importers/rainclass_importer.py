@@ -16,7 +16,7 @@ from .parser_utils import (
     safe_float, safe_int, extract_rate, 
     clean_student_no, clean_name, auto_map_columns, read_excel_smart
 )
-from models import db, Student, ClassInfo, StudentBehavior, StudentKnowledgeMastery
+from models import db, Student, StudentBehavior, StudentKnowledgeMastery, KnowledgePointSummary
 
 
 class RainClassSummaryImporter(BaseImporter):
@@ -123,29 +123,27 @@ class RainClassSummaryImporter(BaseImporter):
         success_count = 0
         
         # 获取或创建班级
-        class_id = self._get_or_create_class()
-        
+        class_id = self._get_target_class_id()
+
         for data in self.parsed_data:
             try:
-                student = Student.get_by_student_no(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
                         name=data['name'],
                         class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
                 else:
                     if data['name'] and student.name != data['name']:
                         student.name = data['name']
-                    
-                    # 关联班级（如果学生还没有班级）
-                    if class_id and not student.class_id:
-                        student.class_id = class_id
-                    
-                    db.session.commit()
                 
-                # 更新或创建知识点掌握概览记录（使用一个特殊的知识点名称标识汇总）
+                # 更新或创建知识点掌握概览记录
+                # '__汇总__' 为内部占位符，存储学生在所有知识点上的整体掌握率，
+                # 来源于雨课堂学生汇总表的"知识点掌握率"列，非Excel中的实际知识点名称。
+                # 该占位符已在所有对外API中过滤，前端不可见。
                 mastery = StudentKnowledgeMastery.get_student_knowledge(
                     student.id, '__汇总__'
                 )
@@ -158,6 +156,8 @@ class RainClassSummaryImporter(BaseImporter):
                     )
                 
                 mastery.mastery_rate = data['overall_mastery_rate']
+                mastery.completion_rate = data['completion_rate']
+                mastery.correct_rate = data['self_test_correct_rate']
                 mastery.mastery_level = StudentKnowledgeMastery.calculate_mastery_level(
                     data['overall_mastery_rate']
                 )
@@ -169,7 +169,7 @@ class RainClassSummaryImporter(BaseImporter):
             except Exception as e:
                 self.errors.append(f'保存学生{data.get("student_no", "未知")}失败: {str(e)}')
         
-        db.session.commit()
+        db.session.flush()
         return success_count
 
 
@@ -208,8 +208,13 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
             return False, errors
         
         from models import ImportRecord
+        try:
+            self._get_target_class_id()
+        except ValueError as exc:
+            errors.append(str(exc))
+            return False, errors
         # 检查是否重复导入（允许覆盖，仅警告）
-        if ImportRecord.is_imported(self.filename):
+        if ImportRecord.is_imported(self.class_id, self.file_hash):
             self.warnings.append(f'文件已导入过: {self.filename}，将覆盖原有数据')
         
         try:
@@ -309,15 +314,15 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
                     if kp['correct_col'] is not None:
                         correct_rate = extract_rate(row.iloc[kp['correct_col']], None)
                     
-                    # 至少有一个有效值才保存
-                    if mastery_rate is None and completion_rate is None and correct_rate is None:
+                    # 掌握率缺失不能按 0 处理，否则会把未评估知识点误算成低掌握。
+                    if mastery_rate is None:
                         continue
                     
                     knowledge_data = {
                         'student_no': student_no,
                         'name': name,
                         'knowledge_name': kp['name'],
-                        'mastery_rate': mastery_rate if mastery_rate is not None else 0,
+                        'mastery_rate': mastery_rate,
                         'completion_rate': completion_rate,
                         'correct_rate': correct_rate,
                         'source': '雨课堂-知识图谱明细'
@@ -338,22 +343,31 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
         success_count = 0
         
         # 获取或创建班级
-        class_id = self._get_or_create_class()
+        class_id = self._get_target_class_id()
+
+        # 重新导入时先清掉旧的明细记录，避免历史版本把缺失掌握率按 0 保存后继续参与统计。
+        old_query = StudentKnowledgeMastery.query.filter(
+            StudentKnowledgeMastery.source == '雨课堂-知识图谱明细'
+        )
+        if class_id:
+            student_ids = db.session.query(Student.id).filter(Student.class_id == class_id)
+            old_query = old_query.filter(StudentKnowledgeMastery.student_id.in_(student_ids))
+        old_query.delete(synchronize_session=False)
         
         for data in self.parsed_data:
             try:
-                student = Student.get_by_student_no(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
                         name=data['name'],
                         class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
                 else:
-                    if class_id and not student.class_id:
-                        student.class_id = class_id
-                        db.session.commit()
+                    if data['name'] and student.name != data['name']:
+                        student.name = data['name']
                 
                 mastery = StudentKnowledgeMastery.get_student_knowledge(
                     student.id, data['knowledge_name']
@@ -367,6 +381,8 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
                     )
                 
                 mastery.mastery_rate = data['mastery_rate']
+                mastery.completion_rate = data['completion_rate']
+                mastery.correct_rate = data['correct_rate']
                 mastery.mastery_level = StudentKnowledgeMastery.calculate_mastery_level(
                     data['mastery_rate']
                 )
@@ -378,8 +394,131 @@ class RainClassKnowledgeDetailImporter(BaseImporter):
             except Exception as e:
                 self.errors.append(f'保存知识点数据失败: {str(e)}')
         
-        db.session.commit()
+        db.session.flush()
         return success_count
+
+
+class RainClassKnowledgePointSummaryImporter(BaseImporter):
+    """
+    雨课堂按知识点汇总导入器。
+
+    文件粒度为知识点，不包含学生，因此写入独立的知识点汇总表。
+    """
+
+    @property
+    def import_type(self) -> str:
+        return '雨课堂-知识点汇总'
+
+    def get_expected_columns(self) -> List[str]:
+        return ['知识点', '掌握率']
+
+    def _read_file(self) -> pd.DataFrame:
+        xls = None
+        for eng in ['openpyxl', 'xlrd']:
+            try:
+                xls = pd.ExcelFile(self.file_path, engine=eng)
+                break
+            except Exception:
+                continue
+        if xls is None:
+            raise ValueError(f'无法读取文件: {self.file_path}')
+
+        target_sheet = None
+        for sheet_name in xls.sheet_names:
+            if '数据结构' in sheet_name or '知识' in sheet_name:
+                target_sheet = sheet_name
+                break
+
+        target_sheet = target_sheet or (xls.sheet_names[0] if xls.sheet_names else None)
+        if target_sheet:
+            return read_excel_smart(self.file_path, sheet_name=target_sheet)
+        return read_excel_smart(self.file_path)
+
+    def parse(self) -> Tuple[bool, List[str]]:
+        errors = []
+        self.parsed_data = []
+
+        if self.df is None:
+            return False, ['数据未加载']
+
+        df = self.df.dropna(how='all').copy()
+
+        for idx, row in df.iterrows():
+            try:
+                knowledge_name = row.get('知识点')
+                if pd.isna(knowledge_name) or not str(knowledge_name).strip():
+                    continue
+
+                content_status = self._safe_text(row.get('完成情况（未开始/进行中/已完成）')) or ''
+                content_counts = self._parse_counts(content_status, 3)
+                quiz_status = self._safe_text(row.get('作答情况（未作答/已作答）')) or ''
+                quiz_counts = self._parse_counts(quiz_status, 2)
+
+                self.parsed_data.append({
+                    'knowledge_name': str(knowledge_name).strip(),
+                    'mastery_rate': extract_rate(row.get('掌握率', 0)),
+                    'published_contents': self._safe_text(row.get('发布学习内容')),
+                    'content_status': content_status,
+                    'content_not_started_count': content_counts[0],
+                    'content_in_progress_count': content_counts[1],
+                    'content_completed_count': content_counts[2],
+                    'content_completion_rate': extract_rate(row.get('完成率', 0)),
+                    'quiz_count': safe_int(row.get('自测习题', 0)),
+                    'quiz_status': quiz_status,
+                    'quiz_unanswered_count': quiz_counts[0],
+                    'quiz_answered_count': quiz_counts[1],
+                    'quiz_completion_rate': extract_rate(row.get('完成率.1', 0)),
+                    'quiz_correct_rate': extract_rate(row.get('正确率', 0)),
+                })
+
+            except Exception as e:
+                errors.append(f'第{idx+1}行解析错误: {str(e)}')
+
+        self.errors = errors
+        return len(self.parsed_data) > 0, errors
+
+    def _save_to_db(self) -> int:
+        success_count = 0
+        class_id = self._get_target_class_id()
+
+        old_query = KnowledgePointSummary.query.filter_by(
+            class_id=class_id,
+            source_file=self.filename,
+        )
+        old_query.delete(synchronize_session=False)
+
+        for data in self.parsed_data:
+            try:
+                summary = KnowledgePointSummary(
+                    class_id=class_id,
+                    source_file=self.filename,
+                    source='雨课堂-知识点汇总',
+                    **data
+                )
+                db.session.add(summary)
+                success_count += 1
+            except Exception as e:
+                self.errors.append(f'保存知识点{data.get("knowledge_name", "未知")}失败: {str(e)}')
+
+        db.session.flush()
+        return success_count
+
+    @staticmethod
+    def _parse_counts(value, expected_count: int) -> List[int]:
+        parts = str(value or '').replace('／', '/').split('/')
+        counts = []
+        for part in parts[:expected_count]:
+            counts.append(safe_int(part.strip(), 0))
+        while len(counts) < expected_count:
+            counts.append(0)
+        return counts
+
+    @staticmethod
+    def _safe_text(value):
+        if pd.isna(value):
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 class RainClassImporter(BaseImporter):
@@ -592,13 +731,13 @@ class RainClassImporter(BaseImporter):
                 behavior_data = {
                     'student_no': student_no,
                     'name': name,
-                    'attendance_rate': extract_rate(get_scalar('到课率')),
-                    'ppt_view_rate': extract_rate(get_scalar('课件观看率')),
-                    'video_finish_rate': extract_rate(get_scalar('视频完成率')),
-                    'exercise_submit_rate': extract_rate(get_scalar('作答率')),
-                    'exercise_score_rate': extract_rate(get_scalar('得分率')),
-                    'discussion_count': safe_int(get_scalar('学生发帖数')),
-                    'reply_count': safe_int(get_scalar('学生回帖数')),
+                    'attendance_rate': extract_rate(get_scalar('到课率', None), None),
+                    'ppt_view_rate': extract_rate(get_scalar('课件观看率', None), None),
+                    'video_finish_rate': extract_rate(get_scalar('视频完成率', None), None),
+                    'exercise_submit_rate': extract_rate(get_scalar('作答率', None), None),
+                    'exercise_score_rate': extract_rate(get_scalar('得分率', None), None),
+                    'discussion_count': safe_int(get_scalar('学生发帖数', None), None),
+                    'reply_count': safe_int(get_scalar('学生回帖数', None), None),
                 }
                 
                 self.parsed_data.append(behavior_data)
@@ -619,56 +758,59 @@ class RainClassImporter(BaseImporter):
         success_count = 0
         
         # 获取或创建班级
-        class_id = self._get_or_create_class()
+        class_id = self._get_target_class_id()
         
         for data in self.parsed_data:
             try:
                 # 查找或创建学生
-                student = Student.get_by_student_no(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
                         name=data['name'],
                         class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
                 else:
                     # 更新姓名（如果不同）
                     if data['name'] and student.name != data['name']:
                         student.name = data['name']
-                    
-                    # 关联班级（如果学生还没有班级）
-                    if class_id and not student.class_id:
-                        student.class_id = class_id
-                    
-                    db.session.commit()
                 
-                # 更新或创建行为数据
-                behavior = StudentBehavior.get_by_student_id(student.id)
-                if not behavior:
-                    behavior = StudentBehavior(student_id=student.id)
-                
-                behavior.attendance_rate = data['attendance_rate']
-                behavior.ppt_view_rate = data['ppt_view_rate']
-                behavior.video_finish_rate = data['video_finish_rate']
-                behavior.exercise_submit_rate = data['exercise_submit_rate']
-                behavior.exercise_score_rate = data['exercise_score_rate']
-                behavior.discussion_count = data['discussion_count']
-                behavior.reply_count = data['reply_count']
-                
-                # 计算综合评分
-                behavior.behavior_score = behavior.calculate_behavior_score()
-                behavior.attendance_level = StudentBehavior.calculate_mastery_level(
-                    behavior.attendance_rate
+                # 只有源文件实际包含行为列时才更新，避免成绩单等雨课堂文件
+                # 把先前导入的学习过程数据用缺省 0 覆盖。
+                behavior_fields = (
+                    'attendance_rate',
+                    'ppt_view_rate',
+                    'video_finish_rate',
+                    'exercise_submit_rate',
+                    'exercise_score_rate',
+                    'discussion_count',
+                    'reply_count',
                 )
-                
-                db.session.add(behavior)
+                has_behavior_data = any(data[field] is not None for field in behavior_fields)
+                behavior = StudentBehavior.get_by_student_id(student.id)
+                if not behavior and has_behavior_data:
+                    behavior = StudentBehavior(student_id=student.id)
+
+                if behavior and has_behavior_data:
+                    for field in behavior_fields:
+                        if data[field] is not None:
+                            setattr(behavior, field, data[field])
+
+                    # 计算综合评分
+                    behavior.behavior_score = behavior.calculate_behavior_score()
+                    behavior.attendance_level = StudentKnowledgeMastery.calculate_mastery_level(
+                        behavior.attendance_rate
+                    )
+
+                    db.session.add(behavior)
                 success_count += 1
                 
             except Exception as e:
                 self.errors.append(f'保存学生{data.get("student_no", "未知")}失败: {str(e)}')
         
-        db.session.commit()
+        db.session.flush()
         return success_count
 
 
@@ -732,16 +874,24 @@ class RainClassKnowledgeImporter(BaseImporter):
         
         success_count = 0
         
+        # 获取或创建班级
+        class_id = self._get_target_class_id()
+        
         for data in self.parsed_data:
             try:
                 # 查找或创建学生
-                student = Student.get_by_student_no(data['student_no'])
+                student = self._find_target_student(data['student_no'])
                 if not student:
                     student = Student(
                         student_no=data['student_no'],
-                        name=data['name']
+                        name=data['name'],
+                        class_id=class_id
                     )
-                    student.save()
+                    db.session.add(student)
+                    db.session.flush()
+                else:
+                    if data['name'] and student.name != data['name']:
+                        student.name = data['name']
                 
                 # 更新或创建知识点掌握记录
                 mastery = StudentKnowledgeMastery.get_student_knowledge(
@@ -756,6 +906,8 @@ class RainClassKnowledgeImporter(BaseImporter):
                     )
                 
                 mastery.mastery_rate = data['mastery_rate']
+                mastery.completion_rate = None
+                mastery.correct_rate = None
                 mastery.mastery_level = StudentKnowledgeMastery.calculate_mastery_level(
                     data['mastery_rate']
                 )
@@ -767,5 +919,5 @@ class RainClassKnowledgeImporter(BaseImporter):
             except Exception as e:
                 self.errors.append(f'保存知识点数据失败: {str(e)}')
         
-        db.session.commit()
+        db.session.flush()
         return success_count

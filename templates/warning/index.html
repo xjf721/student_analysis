@@ -5,7 +5,7 @@
 {% block content %}
 <div class="content-header">
     <div class="container-fluid">
-        <h1 class="m-0">风险预警</h1>
+        <h1 class="m-0">{{ active_class.class_name }} · 风险预警</h1>
     </div>
 </div>
 
@@ -79,7 +79,7 @@
                         <h3 class="card-title">操作</h3>
                     </div>
                     <div class="card-body">
-                        <p>点击下方按钮重新分析所有学生的风险情况：</p>
+                        <p>点击下方按钮重新分析当前班级学生的风险情况：</p>
                         <button class="btn btn-primary btn-block" id="refresh-btn">
                             <i class="fas fa-sync-alt"></i> 重新分析风险
                         </button>
@@ -151,9 +151,14 @@ $(function() {
     }
     
     function loadTypeChart() {
-        var chart = echarts.init(document.getElementById('type-chart'));
+        var chart;
         
         $.get('/api/warning/distribution', function(data) {
+            if (!data.types || data.types.length === 0) {
+                renderCurrentClassEmptyChart('#type-chart');
+                return;
+            }
+            chart = echarts.init(document.getElementById('type-chart'));
             chart.setOption({
                 tooltip: { trigger: 'item' },
                 series: [{
@@ -166,13 +171,18 @@ $(function() {
             });
         });
         
-        $(window).resize(function() { chart.resize(); });
+        $(window).resize(function() { if (chart) { chart.resize(); } });
     }
     
     function loadLevelChart() {
-        var chart = echarts.init(document.getElementById('level-chart'));
+        var chart;
         
         $.get('/api/warning/statistics', function(data) {
+            if (!data.total_warnings) {
+                renderCurrentClassEmptyChart('#level-chart');
+                return;
+            }
+            chart = echarts.init(document.getElementById('level-chart'));
             chart.setOption({
                 tooltip: { trigger: 'item' },
                 series: [{
@@ -188,14 +198,14 @@ $(function() {
             });
         });
         
-        $(window).resize(function() { chart.resize(); });
+        $(window).resize(function() { if (chart) { chart.resize(); } });
     }
     
     function loadWarningStudents() {
         $.get('/api/warning/students?limit=50', function(data) {
             var html = '';
             if (data.length === 0) {
-                html = '<tr><td colspan="7" class="text-center">暂无风险学生</td></tr>';
+                html = currentClassEmptyRow(7);
             } else {
                 data.forEach(function(item) {
                     var levelClass = item.warning_level >= 3 ? 'badge-danger' : 

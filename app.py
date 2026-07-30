@@ -7,15 +7,21 @@ import logging
 from pathlib import Path
 from flask import Flask
 
-from config import config_by_name
+from config import (
+    config_by_name,
+    get_ephemeral_secret_key,
+    validate_database_environment,
+)
+from extensions import csrf, limiter
 from models import init_db
 from controllers import (
-    dashboard_bp, student_bp, knowledge_bp, 
-    warning_bp, import_bp
+    auth_bp, classes_bp, dashboard_bp, import_bp, knowledge_bp,
+    student_bp, warning_bp,
 )
+from services.class_context import install_request_guards, install_template_context
 
 
-def create_app(config_name: str = 'dev') -> Flask:
+def create_app(config_name: str = 'dev', overrides: dict = None) -> Flask:
     """
     创建Flask应用实例
     
@@ -29,6 +35,24 @@ def create_app(config_name: str = 'dev') -> Flask:
     
     # 加载配置
     app.config.from_object(config_by_name[config_name])
+    environment_secret = os.environ.get('SECRET_KEY')
+    if environment_secret:
+        app.config['SECRET_KEY'] = environment_secret
+    if overrides:
+        app.config.update(overrides)
+
+    if not app.config.get('SECRET_KEY'):
+        ephemeral_secret = get_ephemeral_secret_key(config_name)
+        if ephemeral_secret:
+            app.config['SECRET_KEY'] = ephemeral_secret
+        else:
+            raise RuntimeError('SECRET_KEY must be configured for production')
+
+    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('mysql'):
+        validate_database_environment()
+
+    csrf.init_app(app)
+    limiter.init_app(app)
     
     # 确保必要的目录存在
     ensure_directories(app)
@@ -41,6 +65,9 @@ def create_app(config_name: str = 'dev') -> Flask:
     
     # 注册蓝图
     register_blueprints(app)
+
+    install_request_guards(app)
+    install_template_context(app)
     
     # 注册错误处理
     register_error_handlers(app)
@@ -86,6 +113,8 @@ def setup_logging(app: Flask) -> None:
 
 def register_blueprints(app: Flask) -> None:
     """注册蓝图"""
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(classes_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(student_bp)
     app.register_blueprint(knowledge_bp)
@@ -111,4 +140,4 @@ app = create_app(os.environ.get('FLASK_ENV', 'dev'))
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=app.config.get('DEBUG', False))

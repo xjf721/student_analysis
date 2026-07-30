@@ -9,9 +9,9 @@
 - 实践能力评分
 """
 from typing import Dict, List, Optional
-from sqlalchemy import func, desc
+from sqlalchemy import desc
 from datetime import datetime, timedelta
-from models import db, Student, ClassInfo, StudentPractice
+from models import db, Student, StudentBehavior, StudentPractice
 
 
 class PracticeAnalyzer:
@@ -21,13 +21,15 @@ class PracticeAnalyzer:
     分析学生的实验和实践能力
     """
     
-    def __init__(self, class_id: Optional[int] = None):
+    def __init__(self, class_id: int):
         """
         初始化实践能力分析器
         
         Args:
             class_id: 班级ID
         """
+        if not class_id:
+            raise ValueError('class_id is required')
         self.class_id = class_id
     
     def analyze_all(self) -> Dict:
@@ -56,12 +58,9 @@ class PracticeAnalyzer:
         """
         获取实践数据
         """
-        query = StudentPractice.query
-        
-        if self.class_id:
-            query = query.join(Student).filter(Student.class_id == self.class_id)
-        
-        return query.all()
+        return StudentPractice.query.join(Student).filter(
+            Student.class_id == self.class_id
+        ).all()
     
     def _calculate_level(self, score: float) -> int:
         """
@@ -82,7 +81,7 @@ class PracticeAnalyzer:
         else:
             return 0  # 正常
     
-    def get_class_statistics(self, class_id: Optional[int] = None) -> Dict:
+    def get_class_statistics(self) -> Dict:
         """
         获取班级实践统计数据
         
@@ -92,30 +91,28 @@ class PracticeAnalyzer:
         Returns:
             统计数据
         """
-        query = db.session.query(
-            func.avg(StudentPractice.total_score).label('avg_total'),
-            func.avg(StudentPractice.activity_score).label('avg_activity'),
-            func.avg(StudentPractice.avg_experiment_score).label('avg_experiment'),
-            func.avg(StudentPractice.practice_score).label('avg_practice'),
-            func.sum(StudentPractice.assignment_count).label('total_assignments'),
-            func.count(StudentPractice.id).label('student_count')
+        query = StudentPractice.query.join(Student).filter(
+            Student.class_id == self.class_id
         )
-        
-        if class_id:
-            query = query.join(Student).filter(Student.class_id == class_id)
-        
-        result = query.first()
-        
-        if not result or result.student_count == 0:
+
+        practices = query.all()
+
+        if not practices:
             return self._empty_stats()
+
+        total_assignments = sum(p.assignment_count or 0 for p in practices)
+        avg_total = sum(StudentPractice.normalize_score(p.total_score) for p in practices) / len(practices)
+        avg_activity = sum(StudentPractice.normalize_activity_score(p.activity_score) for p in practices) / len(practices)
+        avg_experiment = sum(StudentPractice.normalize_score(p.avg_experiment_score) for p in practices) / len(practices)
+        avg_practice = sum(p.calculate_practice_score() for p in practices) / len(practices)
         
         return {
-            'avg_total_score': round(result.avg_total or 0, 2),
-            'avg_activity_score': round(result.avg_activity or 0, 2),
-            'avg_experiment_score': round(result.avg_experiment or 0, 2),
-            'avg_practice_score': round(result.avg_practice or 0, 2),
-            'total_assignments': result.total_assignments or 0,
-            'student_count': result.student_count
+            'avg_total_score': round(avg_total, 2),
+            'avg_activity_score': round(avg_activity, 2),
+            'avg_experiment_score': round(avg_experiment, 2),
+            'avg_practice_score': round(avg_practice, 2),
+            'total_assignments': total_assignments,
+            'student_count': len(practices)
         }
     
     def _empty_stats(self) -> Dict:
@@ -142,6 +139,7 @@ class PracticeAnalyzer:
         """
         results = db.session.query(Student, StudentPractice)\
             .join(StudentPractice, Student.id == StudentPractice.student_id)\
+            .filter(Student.class_id == self.class_id)\
             .filter(StudentPractice.avg_experiment_score < threshold)\
             .order_by(StudentPractice.avg_experiment_score)\
             .limit(limit)\
@@ -169,6 +167,7 @@ class PracticeAnalyzer:
         """
         results = db.session.query(Student, StudentPractice)\
             .join(StudentPractice, Student.id == StudentPractice.student_id)\
+            .filter(Student.class_id == self.class_id)\
             .filter(StudentPractice.high_retry_count >= threshold)\
             .order_by(desc(StudentPractice.high_retry_count))\
             .limit(limit)\
@@ -197,6 +196,7 @@ class PracticeAnalyzer:
         
         results = db.session.query(Student, StudentPractice)\
             .join(StudentPractice, Student.id == StudentPractice.student_id)\
+            .filter(Student.class_id == self.class_id)\
             .filter(
                 (StudentPractice.last_submit_time < threshold_date) |
                 (StudentPractice.last_submit_time.is_(None))
@@ -212,7 +212,7 @@ class PracticeAnalyzer:
             'activity_score': practice.activity_score
         } for student, practice in results]
     
-    def get_theory_practice_comparison(self, class_id: Optional[int] = None) -> List[Dict]:
+    def get_theory_practice_comparison(self) -> List[Dict]:
         """
         获取理论与实践对比数据
         
@@ -230,28 +230,27 @@ class PracticeAnalyzer:
             StudentBehavior, Student.id == StudentBehavior.student_id
         ).join(
             StudentPractice, Student.id == StudentPractice.student_id
-        )
-        
-        if class_id:
-            query = query.filter(Student.class_id == class_id)
+        ).filter(Student.class_id == self.class_id)
         
         results = query.all()
         
         data = []
         for student, behavior, practice in results:
-            theory_score = behavior.behavior_score
-            practice_score = practice.practice_score
+            theory_score = max(0.0, min(float(behavior.calculate_behavior_score() or 0), 100.0))
+            practice_score = max(0.0, min(float(practice.calculate_practice_score() or 0), 100.0))
             diff = theory_score - practice_score
             
             # 判断类型
-            if theory_score >= 60 and practice_score >= 60:
+            if theory_score >= 70 and practice_score >= 70:
                 type_name = '双强'
             elif theory_score < 60 and practice_score < 60:
                 type_name = '双弱'
-            elif theory_score >= practice_score:
+            elif diff >= 10:
                 type_name = '理论强实践弱'
-            else:
+            elif diff <= -10:
                 type_name = '理论弱实践强'
+            else:
+                type_name = '均衡'
             
             data.append({
                 'student_id': student.id,

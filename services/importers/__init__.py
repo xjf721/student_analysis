@@ -3,7 +3,13 @@
 Importers package - 数据导入器
 """
 from .base_importer import BaseImporter
-from .rainclass_importer import RainClassImporter, RainClassSummaryImporter, RainClassKnowledgeDetailImporter, RainClassKnowledgeImporter
+from .rainclass_importer import (
+    RainClassImporter,
+    RainClassSummaryImporter,
+    RainClassKnowledgeDetailImporter,
+    RainClassKnowledgePointSummaryImporter,
+    RainClassKnowledgeImporter,
+)
 from .educoder_importer import EducoderImporter, EducoderActivityImporter, EducoderAssignmentImporter
 
 __all__ = [
@@ -11,6 +17,7 @@ __all__ = [
     'RainClassImporter',
     'RainClassSummaryImporter',
     'RainClassKnowledgeDetailImporter',
+    'RainClassKnowledgePointSummaryImporter',
     'RainClassKnowledgeImporter',
     'EducoderImporter',
     'EducoderActivityImporter',

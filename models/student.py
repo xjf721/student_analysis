@@ -19,7 +19,7 @@ class Student(BaseModel):
     
     student_no = Column(String(50), unique=True, nullable=False, comment='学号')
     name = Column(String(100), nullable=False, comment='姓名')
-    class_id = Column(Integer, ForeignKey('class_info.id'), nullable=True, comment='班级ID')
+    class_id = Column(Integer, ForeignKey('class_info.id'), nullable=False, comment='班级ID')
     major = Column(String(100), nullable=True, comment='专业')
     
     # 关联关系
@@ -44,6 +44,36 @@ class Student(BaseModel):
             Student对象或None
         """
         return cls.query.filter_by(student_no=student_no).first()
+    
+    @classmethod
+    def find_by_student_no_flex(cls, student_no: str) -> Optional['Student']:
+        """
+        灵活查找学生，自动尝试多种学号格式
+        
+        依次尝试：精确匹配 → 去前导零 → zfill补齐
+        用于导入时兼容不同Excel中学号格式不一致的情况。
+        
+        Args:
+            student_no: 学号
+            
+        Returns:
+            Student对象或None
+        """
+        student = cls.get_by_student_no(student_no)
+        if student:
+            return student
+        stripped = student_no.lstrip('0') or '0'
+        if stripped != student_no:
+            student = cls.get_by_student_no(stripped)
+            if student:
+                return student
+        if len(student_no) < 12:
+            for pad_len in (8, 10, 11):
+                padded = student_no.zfill(pad_len)
+                student = cls.get_by_student_no(padded)
+                if student:
+                    return student
+        return None
     
     @classmethod
     def get_by_class_id(cls, class_id: int) -> List['Student']:

@@ -54,23 +54,55 @@ class StudentPractice(BaseModel):
     
     def calculate_practice_score(self) -> float:
         """
-        计算实践能力综合评分
-        
-        评分权重：
-        - 实验总成绩：40%
-        - 活跃度分数：30%
-        - 平均实验分数：30%
+        计算实践成绩。
+
+        头歌总成绩导入器已经按“个人总成绩 / 实训数量”折算为百分制，
+        因此实践成绩直接使用该折算结果；活跃度和平均实验分作为独立分析指标。
         
         Returns:
-            综合评分(0-100)
+            实践成绩(0-100)
         """
-        score = (
-            self.total_score * 0.40 +
-            self.activity_score * 0.30 +
-            self.avg_experiment_score * 0.30
-        )
-        
-        return round(score, 2)
+        return self.normalize_score(self.total_score)
+
+    @staticmethod
+    def normalize_score(value: Optional[float]) -> float:
+        """将常规成绩归一化到 0-100。"""
+        if value is None:
+            return 0.0
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        return round(max(0.0, min(score, 100.0)), 2)
+
+    @staticmethod
+    def normalize_activity_score(value: Optional[float]) -> float:
+        """
+        将头歌活跃度归一化到 0-100。
+
+        当前导出中活跃度是加权原始分（如作业完成数 * 10），满分约 900+；
+        转成百分制时先按 /10 压缩，再截断到 100。
+        """
+        if value is None:
+            return 0.0
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if score > 100:
+            score = score / 10.0
+        return round(max(0.0, min(score, 100.0)), 2)
+
+    @staticmethod
+    def calculate_practice_level(score: float) -> int:
+        """实践风险等级：0正常/1关注/2预警/3高危。"""
+        if score < 50:
+            return 3
+        if score < 60:
+            return 2
+        if score < 70:
+            return 1
+        return 0
     
     def to_dict(self) -> dict:
         """
@@ -85,6 +117,7 @@ class StudentPractice(BaseModel):
             'student_name': self.student.name if self.student else None,
             'total_score': self.total_score,
             'activity_score': self.activity_score,
+            'activity_score_normalized': self.normalize_activity_score(self.activity_score),
             'assignment_count': self.assignment_count,
             'avg_experiment_score': self.avg_experiment_score,
             'high_retry_count': self.high_retry_count,

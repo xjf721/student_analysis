@@ -7,11 +7,15 @@ from .student_controller import student_bp
 from .knowledge_controller import knowledge_bp
 from .warning_controller import warning_bp
 from .import_controller import import_bp
+from .auth_controller import auth_bp
+from .class_controller import classes_bp
 
 __all__ = [
     'dashboard_bp',
     'student_bp',
     'knowledge_bp',
     'warning_bp',
-    'import_bp'
+    'import_bp',
+    'auth_bp',
+    'classes_bp',
 ]

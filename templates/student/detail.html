@@ -2,10 +2,48 @@
 
 {% block title %}学生画像 - 教学过程智能分析与预警平台{% endblock %}
 
+{% block extra_css %}
+<style>
+    .metric-card {
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        background: #f8f9fa;
+        border-left: 4px solid #007bff;
+    }
+    .metric-card .metric-value {
+        font-size: 22px;
+        font-weight: bold;
+        line-height: 1.2;
+    }
+    .metric-card .metric-value.compact {
+        font-size: 16px;
+        line-height: 1.5;
+    }
+    .metric-card .metric-label {
+        font-size: 13px;
+        color: #6c757d;
+    }
+    .metric-card.green { border-left-color: #28a745; }
+    .metric-card.red { border-left-color: #dc3545; }
+    .metric-card.orange { border-left-color: #fd7e14; }
+    .metric-card.blue { border-left-color: #007bff; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="content-header">
     <div class="container-fluid">
-        <h1 class="m-0">学生画像</h1>
+        <div class="row mb-2">
+            <div class="col-sm-6">
+                <h1 class="m-0">{{ active_class.class_name }} · 学生画像</h1>
+            </div>
+            <div class="col-sm-6 text-sm-right">
+                <a class="btn btn-info" href="/student/{{ student_id }}/overview">
+                    <i class="fas fa-list-alt"></i> 数据全览
+                </a>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -54,6 +92,156 @@
                             <span class="badge" id="warning-level">--</span>
                         </div>
                         <p class="text-muted mt-2" id="warning-reason">--</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 画像摘要指标 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">画像摘要</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-2 col-6">
+                                <div class="metric-card blue">
+                                    <div class="metric-label">知识点数</div>
+                                    <div class="metric-value" id="met-knowledge-count">--</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-6">
+                                <div class="metric-card red">
+                                    <div class="metric-label">薄弱知识点</div>
+                                    <div class="metric-value" id="met-weak-count">--</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-6">
+                                <div class="metric-card green">
+                                    <div class="metric-label">平均掌握率</div>
+                                    <div class="metric-value" id="met-avg-mastery">--</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-6">
+                                <div class="metric-card orange">
+                                    <div class="metric-label">理论实践差</div>
+                                    <div class="metric-value" id="met-tp-diff">--</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-6">
+                                <div class="metric-card blue">
+                                    <div class="metric-label">平均实验分</div>
+                                    <div class="metric-value" id="met-profile-avg-exp">--</div>
+                                </div>
+                            </div>
+                            <div class="col-md-2 col-6">
+                                <div class="metric-card green">
+                                    <div class="metric-label">最后提交</div>
+                                    <div class="metric-value compact" id="met-last-submit">--</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 学生维度统计指标 -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">雨课堂学习行为统计</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="metric-card blue">
+                                    <div class="metric-label">到课率</div>
+                                    <div class="metric-value" id="met-attend">--%</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-card blue">
+                                    <div class="metric-label">视频完成率</div>
+                                    <div class="metric-value" id="met-video">--%</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-card green">
+                                    <div class="metric-label">作业提交率</div>
+                                    <div class="metric-value" id="met-submit">--%</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-card orange">
+                                    <div class="metric-label">作业得分率</div>
+                                    <div class="metric-value" id="met-score-rate">--%</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-card blue">
+                                    <div class="metric-label">PPT查看率</div>
+                                    <div class="metric-value" id="met-ppt">--%</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-card green">
+                                    <div class="metric-label">讨论参与</div>
+                                    <div class="metric-value" id="met-discuss">--</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">头歌实践能力统计</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="metric-card green">
+                                    <div class="metric-label">实验总成绩</div>
+                                    <div class="metric-value" id="met-total-score">--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-card blue">
+                                    <div class="metric-label">活跃度(归一)</div>
+                                    <div class="metric-value" id="met-activity">--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-card orange">
+                                    <div class="metric-label">平均实验分</div>
+                                    <div class="metric-value" id="met-avg-exp">--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-card red">
+                                    <div class="metric-label">高频重试次数</div>
+                                    <div class="metric-value" id="met-retry">--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-card blue">
+                                    <div class="metric-label">完成作业数</div>
+                                    <div class="metric-value" id="met-assign-count">--</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-card green">
+                                    <div class="metric-label">实践综合评分</div>
+                                    <div class="metric-value" id="met-practice-score">--</div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -114,9 +302,12 @@ $(function() {
             $('#student-name').text(data.name);
             $('#student-class').text(data.class_name || '--');
             $('#student-major').text(data.major || '--');
-            
+            renderBehaviorMetrics(data.behavior);
+            renderPracticeMetrics(data.practice);
+            renderProfileMetrics(data.profile_metrics, data.theory_practice, data.practice);
+
             if (data.warning) {
-                $('#warning-score').text(data.warning.warning_score.toFixed(1));
+                $('#warning-score').text(formatNumber(data.warning.warning_score, 1));
                 var levelClass = data.warning.warning_level >= 3 ? 'badge-danger' : 
                                  data.warning.warning_level >= 2 ? 'badge-warning' : 
                                  data.warning.warning_level >= 1 ? 'badge-info' : 'badge-success';
@@ -131,9 +322,14 @@ $(function() {
     }
     
     function loadRadarChart() {
-        var chart = echarts.init(document.getElementById('radar-chart'));
+        var chart;
         
         $.get('/api/student/' + studentId + '/radar', function(data) {
+            if (!data.indicator || data.indicator.length === 0 || !data.values || data.values.length === 0) {
+                renderCurrentClassEmptyChart('#radar-chart');
+                return;
+            }
+            chart = echarts.init(document.getElementById('radar-chart'));
             chart.setOption({
                 tooltip: {},
                 radar: {
@@ -149,7 +345,7 @@ $(function() {
             });
         });
         
-        $(window).resize(function() { chart.resize(); });
+        $(window).resize(function() { if (chart) { chart.resize(); } });
     }
     
     function loadTheoryPractice() {
@@ -174,6 +370,7 @@ $(function() {
                             data.type === '双弱' ? 'badge-danger' :
                             data.type === '理论强实践弱' ? 'badge-warning' : 'badge-info';
             $('#theory-practice-type').attr('class', 'badge ' + typeClass).text(data.type);
+            $('#met-tp-diff').text(formatSignedNumber(data.diff, 1));
         });
         
         $(window).resize(function() { chart.resize(); });
@@ -183,7 +380,7 @@ $(function() {
         $.get('/api/student/' + studentId + '/weak-points', function(data) {
             var html = '';
             if (data.length === 0) {
-                html = '<tr><td colspan="3" class="text-center">暂无薄弱知识点</td></tr>';
+                html = currentClassEmptyRow(3);
             } else {
                 data.forEach(function(item) {
                     var levelClass = item.mastery_level === 0 ? 'badge-danger' : 'badge-warning';
@@ -196,6 +393,77 @@ $(function() {
             }
             $('#weak-points-table').html(html);
         });
+    }
+
+    function renderBehaviorMetrics(b) {
+        if (b) {
+            $('#met-attend').text(formatRate(b.attendance_rate));
+            $('#met-video').text(formatRate(b.video_finish_rate));
+            $('#met-submit').text(formatRate(b.exercise_submit_rate));
+            $('#met-score-rate').text(formatRate(b.exercise_score_rate));
+            $('#met-ppt').text(formatRate(b.ppt_view_rate));
+            $('#met-discuss').text((b.discussion_count || 0) + '帖/' + (b.reply_count || 0) + '回');
+        } else {
+            $('#met-attend,#met-video,#met-submit,#met-score-rate,#met-ppt,#met-discuss').text('--');
+        }
+    }
+
+    function renderPracticeMetrics(p) {
+        if (p) {
+            $('#met-total-score').text(formatNumber(p.total_score, 1));
+            $('#met-activity').text(formatNumber(p.activity_score_normalized, 1));
+            $('#met-avg-exp').text(formatNumber(p.avg_experiment_score, 1));
+            $('#met-retry').text(p.high_retry_count || 0);
+            $('#met-assign-count').text(p.assignment_count || 0);
+            $('#met-practice-score').text(formatNumber(p.practice_score, 1));
+        } else {
+            $('#met-total-score,#met-activity,#met-avg-exp,#met-retry,#met-assign-count,#met-practice-score').text('--');
+        }
+    }
+
+    function renderProfileMetrics(metrics, theoryPractice, practice) {
+        metrics = metrics || {};
+        practice = practice || {};
+        $('#met-knowledge-count').text(metrics.knowledge_count != null ? metrics.knowledge_count : '--');
+        $('#met-weak-count').text(metrics.weak_knowledge_count != null ? metrics.weak_knowledge_count : '--');
+        $('#met-avg-mastery').text(formatRate(metrics.avg_mastery_rate));
+        $('#met-tp-diff').text(theoryPractice ? formatSignedNumber(theoryPractice.diff, 1) : '--');
+        $('#met-profile-avg-exp').text(formatNumber(metrics.avg_assignment_score, 1));
+        $('#met-last-submit').text(practice.last_submit_time || '--');
+    }
+
+    function formatNumber(value, digits) {
+        if (value == null || value === '') {
+            return '--';
+        }
+        var n = Number(value);
+        if (Number.isNaN(n)) {
+            return '--';
+        }
+        return n.toFixed(digits == null ? 1 : digits);
+    }
+
+    function formatSignedNumber(value, digits) {
+        if (value == null || value === '') {
+            return '--';
+        }
+        var n = Number(value);
+        if (Number.isNaN(n)) {
+            return '--';
+        }
+        var fixed = n.toFixed(digits == null ? 1 : digits);
+        return n > 0 ? '+' + fixed : fixed;
+    }
+
+    function formatRate(value) {
+        if (value == null || value === '') {
+            return '--';
+        }
+        var n = Number(value);
+        if (Number.isNaN(n)) {
+            return '--';
+        }
+        return n.toFixed(1) + '%';
     }
 });
 </script>

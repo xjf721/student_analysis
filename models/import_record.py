@@ -2,8 +2,9 @@
 """
 导入日志模型
 """
-from typing import Optional, List
-from sqlalchemy import Column, String, Integer
+from typing import Optional, List, Union
+from sqlalchemy import Column, ForeignKey, String, Integer
+from sqlalchemy.orm import relationship
 
 from .base import BaseModel
 
@@ -16,12 +17,16 @@ class ImportRecord(BaseModel):
     """
     __tablename__ = 'import_record'
     
+    class_id = Column(Integer, ForeignKey('class_info.id'), nullable=False, index=True)
     filename = Column(String(255), nullable=False, comment='导入文件名')
+    file_hash = Column(String(64), nullable=False, index=True)
+    uploaded_by = Column(String(100), nullable=False)
     import_type = Column(String(50), nullable=False, comment='导入类型：雨课堂/头歌')
     import_status = Column(String(20), default='进行中', comment='导入状态：进行中/成功/失败')
     success_count = Column(Integer, default=0, comment='成功导入数量')
     failed_count = Column(Integer, default=0, comment='失败数量')
     error_message = Column(String(1000), nullable=True, comment='错误信息')
+    class_info = relationship('ClassInfo')
     
     def __repr__(self) -> str:
         return f'<ImportRecord {self.filename}>'
@@ -40,31 +45,45 @@ class ImportRecord(BaseModel):
         return cls.query.filter_by(filename=filename).first()
     
     @classmethod
-    def is_imported(cls, filename: str) -> bool:
+    def is_imported(cls, class_id: Union[int, str], file_hash: Optional[str] = None) -> bool:
         """
         检查文件是否已成功导入
         
         Args:
-            filename: 文件名
+            class_id: 班级ID；未提供 file_hash 时可传入旧调用方式的文件名
+            file_hash: 文件摘要
             
         Returns:
             是否已导入
         """
-        record = cls.query.filter_by(filename=filename, import_status='成功').first()
-        return record is not None
+        if file_hash is None:
+            return cls.query.filter_by(
+                filename=class_id,
+                import_status='成功',
+            ).first() is not None
+
+        return cls.query.filter_by(
+            class_id=class_id,
+            file_hash=file_hash,
+            import_status='成功',
+        ).first() is not None
     
     @classmethod
-    def get_recent_records(cls, limit: int = 20) -> List['ImportRecord']:
+    def get_recent_records(cls, class_id: Optional[int] = None, limit: int = 20) -> List['ImportRecord']:
         """
         获取最近的导入记录
         
         Args:
+            class_id: 班级ID；未提供时返回过渡期的全局记录
             limit: 返回记录数量
             
         Returns:
             导入记录列表
         """
-        return cls.query.order_by(cls.created_at.desc()).limit(limit).all()
+        query = cls.query
+        if class_id is not None:
+            query = query.filter_by(class_id=class_id)
+        return query.order_by(cls.created_at.desc()).limit(limit).all()
     
     def mark_success(self, success_count: int) -> None:
         """
@@ -101,7 +120,11 @@ class ImportRecord(BaseModel):
         """
         return {
             'id': self.id,
+            'class_id': self.class_id,
+            'class_name': self.class_info.class_name if self.class_info else None,
             'filename': self.filename,
+            'file_hash': self.file_hash,
+            'uploaded_by': self.uploaded_by,
             'import_type': self.import_type,
             'import_status': self.import_status,
             'success_count': self.success_count,
