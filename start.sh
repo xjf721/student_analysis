@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export ADMIN_USERNAME='admin'
-export ADMIN_PASSWORD_HASH='scrypt:32768:8:1$B74TIIlSwkU9cMFx$c2df4abbf9272c6a75e7293171c6ee547cccc49826e1249f45278130411ed9ee9f9a604f4bd9c49057f290c59f0d8e1df3b1344f0265dbc16c2116c2fada9892'
-#export FLASK_ENV='prod'
-#export SECRET_KEY='粘贴生成的随机密钥'
-#export SESSION_COOKIE_SECURE=true
-export MYSQL_USER='root'
-export MYSQL_PASSWORD='Root@123456'
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
