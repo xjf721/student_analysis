@@ -108,3 +108,7 @@ export/
 # 本地原始教学数据与隔离工作区
 new-datas/
 .worktrees/
+
+# AI自动生成的文件。
+.agents/
+.pytest_cache/
