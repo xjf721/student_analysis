@@ -13,6 +13,7 @@ from .knowledge import StudentKnowledgeMastery
 from .knowledge_point_summary import KnowledgePointSummary
 from .warning import WarningRecord
 from .import_record import ImportRecord
+from .student_image import StudentImage
 
 __all__ = [
     'db',
@@ -26,5 +27,6 @@ __all__ = [
     'StudentKnowledgeMastery',
     'KnowledgePointSummary',
     'WarningRecord',
-    'ImportRecord'
+    'ImportRecord',
+    'StudentImage'
 ]

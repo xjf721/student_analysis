@@ -28,6 +28,7 @@ class Student(BaseModel):
     practice = relationship('StudentPractice', back_populates='student', uselist=False, lazy=True)
     knowledge_masteries = relationship('StudentKnowledgeMastery', back_populates='student', lazy=True)
     warnings = relationship('WarningRecord', back_populates='student', lazy=True)
+    image = relationship('StudentImage', back_populates='student', uselist=False, lazy=True)
     
     def __repr__(self) -> str:
         return f'<Student {self.student_no} - {self.name}>'

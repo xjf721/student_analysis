@@ -13,6 +13,7 @@ from models import ClassInfo, db
 def app(tmp_path):
     test_app = create_app('test', overrides={
         'SQLALCHEMY_DATABASE_URI': f"sqlite:///{tmp_path / 'test.db'}",
+        'STUDENT_IMAGE_FOLDER': str(tmp_path / 'student_images'),
         'ADMIN_USERNAME': 'admin',
         'ADMIN_PASSWORD_HASH': generate_password_hash('correct-password'),
         'WTF_CSRF_ENABLED': False,

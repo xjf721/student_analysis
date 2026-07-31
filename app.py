@@ -79,6 +79,7 @@ def ensure_directories(app: Flask) -> None:
     """确保必要的目录存在"""
     directories = [
         app.config.get('UPLOAD_FOLDER', 'uploads'),
+        app.config['STUDENT_IMAGE_FOLDER'],
         'logs',
         'static',
         'templates'
