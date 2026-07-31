@@ -203,7 +203,12 @@ def upload_student_image(student_id: int) -> object:
     result = _run_service(
         class_id,
         lambda: StudentImageService.process_upload(
-            class_id, file, preferred_student_id=student_id
+            class_id,
+            file,
+            preferred_student_id=student_id,
+            confirm_replace=_confirmation_value(
+                request.form.get('confirm_replace')
+            ),
         ),
     )
     if isinstance(result, tuple):

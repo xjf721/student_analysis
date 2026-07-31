@@ -275,6 +275,88 @@ def test_duplicate_hash_is_allowed_in_another_class(app, two_classes, jpeg_bytes
         assert StudentImage.query.count() == 2
 
 
+def test_preferred_duplicate_already_bound_to_target_is_idempotent(
+    app, two_classes, jpeg_bytes
+):
+    """Retrying identical content for its current student preserves the correct binding."""
+    class_id, _ = two_classes
+    with app.app_context():
+        student = add_student(class_id, 'DUPTARGET001', 'Duplicate Target')
+        first = StudentImageService.process_upload(
+            class_id,
+            uploaded_file('first.jpg', jpeg_bytes),
+            preferred_student_id=student.id,
+        )
+
+        retry = StudentImageService.process_upload(
+            class_id,
+            uploaded_file('retry.jpg', jpeg_bytes),
+            preferred_student_id=student.id,
+        )
+
+        assert retry['status'] == 'duplicate'
+        assert retry['image']['id'] == first['image']['id']
+        assert retry['image']['student_id'] == student.id
+        assert StudentImage.query.filter_by(class_id=class_id).count() == 1
+
+
+def test_preferred_pending_duplicate_binds_to_target(
+    app, two_classes, jpeg_bytes
+):
+    """Identical pending content is associated instead of returning an unbound success."""
+    class_id, _ = two_classes
+    with app.app_context():
+        student = add_student(class_id, 'DUPPENDING001', 'Pending Target')
+        pending = pending_image(class_id, 'pending.jpg', jpeg_bytes)
+
+        result = StudentImageService.process_upload(
+            class_id,
+            uploaded_file('same.jpg', jpeg_bytes),
+            preferred_student_id=student.id,
+        )
+
+        assert result['status'] == 'duplicate'
+        assert result['image']['id'] == pending.id
+        assert result['image']['student_id'] == student.id
+        assert db.session.get(StudentImage, pending.id).student_id == student.id
+
+
+def test_preferred_duplicate_owned_by_other_student_requires_confirmation(
+    app, two_classes, jpeg_bytes
+):
+    """A duplicate portrait cannot silently move between students without consent."""
+    class_id, _ = two_classes
+    with app.app_context():
+        owner = add_student(class_id, 'DUPOWNER001', 'Duplicate Owner')
+        target = add_student(class_id, 'DUPDEST001', 'Duplicate Destination')
+        first = StudentImageService.process_upload(
+            class_id,
+            uploaded_file('owner.jpg', jpeg_bytes),
+            preferred_student_id=owner.id,
+        )
+        image_id = first['image']['id']
+
+        with pytest.raises(ImageProcessingError) as error:
+            StudentImageService.process_upload(
+                class_id,
+                uploaded_file('same.jpg', jpeg_bytes),
+                preferred_student_id=target.id,
+            )
+
+        assert error.value.code == 'binding_conflict'
+        assert db.session.get(StudentImage, image_id).student_id == owner.id
+
+        confirmed = StudentImageService.process_upload(
+            class_id,
+            uploaded_file('same.jpg', jpeg_bytes),
+            preferred_student_id=target.id,
+            confirm_replace=True,
+        )
+        assert confirmed['image']['id'] == image_id
+        assert confirmed['image']['student_id'] == target.id
+        assert StudentImageRepository.get_for_student(owner.id, class_id) is None
+
+
 def test_duplicate_integrity_race_returns_existing_row(
     app, two_classes, jpeg_bytes, monkeypatch
 ):

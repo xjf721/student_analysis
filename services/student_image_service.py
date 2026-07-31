@@ -200,6 +200,7 @@ class StudentImageService:
         class_id: int,
         file: FileStorage,
         preferred_student_id: Optional[int] = None,
+        confirm_replace: bool = False,
     ) -> dict:
         """Validate, normalize, match, and atomically persist one uploaded image."""
         original_filename = file.filename or ''
@@ -218,12 +219,13 @@ class StudentImageService:
         content_hash = hashlib.sha256(source).hexdigest()
         duplicate = StudentImageRepository.find_duplicate(class_id, content_hash)
         if duplicate is not None:
-            return {
-                'success': True,
-                'status': 'duplicate',
-                'filename': original_filename,
-                'image': duplicate.to_dict(),
-            }
+            return cls._resolve_duplicate_upload(
+                class_id,
+                duplicate,
+                original_filename,
+                preferred_student_id,
+                confirm_replace,
+            )
 
         parsed = cls.parse_filename(original_filename)
         if preferred_student is None:
@@ -266,12 +268,13 @@ class StudentImageService:
             final_path.unlink(missing_ok=True)
             duplicate = StudentImageRepository.find_duplicate(class_id, content_hash)
             if duplicate is not None:
-                return {
-                    'success': True,
-                    'status': 'duplicate',
-                    'filename': original_filename,
-                    'image': duplicate.to_dict(),
-                }
+                return cls._resolve_duplicate_upload(
+                    class_id,
+                    duplicate,
+                    original_filename,
+                    preferred_student_id,
+                    confirm_replace,
+                )
             raise
         except Exception:
             db.session.rollback()
@@ -286,6 +289,34 @@ class StudentImageService:
             'status': image.match_status,
             'filename': original_filename,
             'image': image.to_dict(),
+        }
+
+    @classmethod
+    def _resolve_duplicate_upload(
+        cls,
+        class_id: int,
+        duplicate: StudentImage,
+        original_filename: str,
+        preferred_student_id: Optional[int],
+        confirm_replace: bool,
+    ) -> dict:
+        """Apply preferred-student binding semantics to an identical class image."""
+        image_data = duplicate.to_dict()
+        if (
+            preferred_student_id is not None
+            and duplicate.student_id != preferred_student_id
+        ):
+            image_data = cls.bind_image(
+                class_id,
+                duplicate.id,
+                preferred_student_id,
+                confirm_replace=confirm_replace,
+            )
+        return {
+            'success': True,
+            'status': 'duplicate',
+            'filename': original_filename,
+            'image': image_data,
         }
 
     @staticmethod

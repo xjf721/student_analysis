@@ -308,6 +308,99 @@ def test_student_specific_upload_binds_and_replaces_existing_image(
     assert response.get_json()['image']['student_id'] == student_id
 
 
+def test_duplicate_student_upload_already_owned_by_target_is_idempotent(
+    app, client, two_classes, jpeg_bytes
+):
+    """Retrying the target's existing bytes returns its still-correct portrait."""
+    first_class_id, _ = two_classes
+    with app.app_context():
+        student = add_student(first_class_id, 'APIDUP001', 'API Duplicate')
+        first = StudentImageService.process_upload(
+            first_class_id,
+            FileStorage(stream=BytesIO(jpeg_bytes), filename='first.jpg'),
+            preferred_student_id=student.id,
+        )
+        student_id, image_id = student.id, first['image']['id']
+    login_and_select(client, first_class_id)
+
+    response = client.post(
+        f'/api/student/{student_id}/image',
+        data={'file': (BytesIO(jpeg_bytes), 'retry.jpg')},
+        content_type='multipart/form-data',
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()['image']['id'] == image_id
+    assert response.get_json()['image']['student_id'] == student_id
+    with app.app_context():
+        assert StudentImage.query.filter_by(class_id=first_class_id).count() == 1
+
+
+def test_duplicate_student_upload_binds_pending_image(
+    app, client, two_classes, jpeg_bytes
+):
+    """The endpoint must not report success while identical content stays pending."""
+    first_class_id, _ = two_classes
+    with app.app_context():
+        student = add_student(first_class_id, 'APIPENDING001', 'API Pending')
+        pending = upload_image(first_class_id, 'pending.jpg', jpeg_bytes)
+        student_id, image_id = student.id, pending.id
+    login_and_select(client, first_class_id)
+
+    response = client.post(
+        f'/api/student/{student_id}/image',
+        data={'file': (BytesIO(jpeg_bytes), 'same.jpg')},
+        content_type='multipart/form-data',
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()['image']['id'] == image_id
+    assert response.get_json()['image']['student_id'] == student_id
+    with app.app_context():
+        assert db.session.get(StudentImage, image_id).student_id == student_id
+
+
+def test_duplicate_student_upload_owned_elsewhere_requires_confirmation(
+    app, client, two_classes, jpeg_bytes
+):
+    """The endpoint returns 409 until an explicit multipart confirmation rebinds."""
+    first_class_id, _ = two_classes
+    with app.app_context():
+        owner = add_student(first_class_id, 'APIOWNER001', 'API Owner')
+        target = add_student(first_class_id, 'APIDEST001', 'API Destination')
+        first = StudentImageService.process_upload(
+            first_class_id,
+            FileStorage(stream=BytesIO(jpeg_bytes), filename='owner.jpg'),
+            preferred_student_id=owner.id,
+        )
+        owner_id, target_id, image_id = owner.id, target.id, first['image']['id']
+    login_and_select(client, first_class_id)
+
+    conflict = client.post(
+        f'/api/student/{target_id}/image',
+        data={'file': (BytesIO(jpeg_bytes), 'same.jpg')},
+        content_type='multipart/form-data',
+    )
+    assert conflict.status_code == 409
+    assert conflict.get_json()['error']['code'] == 'binding_conflict'
+    with app.app_context():
+        assert db.session.get(StudentImage, image_id).student_id == owner_id
+
+    confirmed = client.post(
+        f'/api/student/{target_id}/image',
+        data={
+            'file': (BytesIO(jpeg_bytes), 'same.jpg'),
+            'confirm_replace': 'true',
+        },
+        content_type='multipart/form-data',
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.get_json()['image']['id'] == image_id
+    assert confirmed.get_json()['image']['student_id'] == target_id
+    with app.app_context():
+        assert StudentImageRepository.get_for_student(owner_id, first_class_id) is None
+
+
 def test_delete_removes_image(app, client, two_classes, jpeg_bytes):
     """Delete reports success and removes both image metadata and protected media."""
     first_class_id, _ = two_classes
