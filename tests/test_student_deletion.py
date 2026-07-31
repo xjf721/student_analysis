@@ -1,3 +1,7 @@
+from io import BytesIO
+
+from werkzeug.datastructures import FileStorage
+
 from models import (
     Student,
     StudentAssignmentChallenge,
@@ -5,9 +9,11 @@ from models import (
     StudentBehavior,
     StudentKnowledgeMastery,
     StudentPractice,
+    StudentImage,
     WarningRecord,
     db,
 )
+from services.student_image_service import StudentImageService
 
 
 def login_and_select(client, class_id: int) -> None:
@@ -92,6 +98,39 @@ def test_delete_student_removes_all_student_data_and_allows_recreation(
         db.session.add(Student(student_no='TEST001', name='重新导入', class_id=class_id))
         db.session.commit()
         assert Student.query.filter_by(student_no='TEST001').one().name == '重新导入'
+
+
+def test_delete_student_preserves_image_file_as_pending(
+    app, client, two_classes, jpeg_bytes
+):
+    """Deleting a student unlinks, but does not remove, the stored portrait."""
+    class_id, _ = two_classes
+    student_id = seed_student_with_all_details(app, class_id)
+    with app.app_context():
+        student = db.session.get(Student, student_id)
+        result = StudentImageService.process_upload(
+            class_id,
+            FileStorage(
+                stream=BytesIO(jpeg_bytes),
+                filename=f'01-{student.name}.jpg',
+            ),
+        )
+        image_id = result['image']['id']
+        image = db.session.get(StudentImage, image_id)
+        image_path = StudentImageService.get_storage_path(image)
+        assert image.student_id == student_id
+        assert image_path.exists()
+    login_and_select(client, class_id)
+
+    response = client.delete(f'/api/student/{student_id}')
+
+    assert response.status_code == 200
+    with app.app_context():
+        image = db.session.get(StudentImage, image_id)
+        assert image_path.exists()
+        assert image.student_id is None
+        assert image.match_status == 'pending'
+        assert image.match_message == '学生已删除，等待重新关联'
 
 
 def test_delete_student_is_scoped_to_active_class(app, client, two_classes):

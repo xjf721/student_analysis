@@ -13,6 +13,7 @@ from models import (
     WarningRecord,
     StudentAssignmentDetail,
     StudentAssignmentChallenge,
+    StudentImage,
 )
 from services.knowledge_order import extract_knowledge_sequence, knowledge_name_sort_key
 
@@ -414,6 +415,14 @@ class StudentRepository:
         }
 
         try:
+            image = StudentImage.query.filter_by(
+                student_id=student.id,
+                class_id=class_id,
+            ).first()
+            if image:
+                image.student_id = None
+                image.match_status = 'pending'
+                image.match_message = '学生已删除，等待重新关联'
             StudentAssignmentChallenge.query.filter_by(student_id=student.id).delete(
                 synchronize_session=False
             )
