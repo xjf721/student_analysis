@@ -12,7 +12,30 @@
     }
 
     function requestJson(url, options) {
-        return window.fetch(url, options || {}).then(function (response) {
+        var requestOptions = Object.assign({}, options || {});
+        var method = String(requestOptions.method || 'GET').toUpperCase();
+        if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+            var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+            var csrfToken = csrfMeta ? csrfMeta.content : '';
+            var requestHeaders = new Headers(requestOptions.headers || {});
+            if (csrfToken) {
+                requestHeaders.set('X-CSRFToken', csrfToken);
+            }
+            requestOptions.headers = requestHeaders;
+        }
+        var requestOptions = Object.assign({}, options || {});
+        var method = String(requestOptions.method || 'GET').toUpperCase();
+        if (['GET', 'HEAD', 'OPTIONS'].indexOf(method) === -1) {
+            var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+            var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+            if (csrfToken) {
+                var requestHeaders = new window.Headers(requestOptions.headers || {});
+                requestHeaders.set('X-CSRFToken', csrfToken);
+                requestOptions.headers = requestHeaders;
+            }
+        }
+
+        return window.fetch(url, requestOptions).then(function (response) {
             return response.json().catch(function () { return {}; }).then(function (data) {
                 if (!response.ok) {
                     var error = new Error(

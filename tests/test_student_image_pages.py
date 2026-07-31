@@ -151,6 +151,18 @@ def test_student_overview_page_uses_responsive_three_column_avatar_header(
     assert "{% include 'student/_avatar_modal.html' %}" in template
 
 
+def test_shared_avatar_mutations_attach_the_page_csrf_token():
+    """Binding and FormData uploads share the base page's CSRF contract."""
+    script = (
+        PROJECT_ROOT / 'static' / 'js' / 'student_avatar.js'
+    ).read_text(encoding='utf-8')
+
+    assert 'meta[name="csrf-token"]' in script
+    assert "requestOptions.method || 'GET'" in script
+    assert "requestHeaders.set('X-CSRFToken', csrfToken)" in script
+    assert "window.fetch(url, requestOptions)" in script
+
+
 def test_image_library_page_exposes_upload_filter_grid_and_result_contract(
     client, two_classes
 ):
