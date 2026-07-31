@@ -1,12 +1,22 @@
 import os
+from io import BytesIO
 
 os.environ.setdefault('FLASK_ENV', 'test')
 
 import pytest
+from PIL import Image
 from werkzeug.security import generate_password_hash
 
 from app import create_app
 from models import ClassInfo, db
+
+
+@pytest.fixture()
+def jpeg_bytes() -> bytes:
+    """Return a valid landscape JPEG without relying on shared fixture files."""
+    buffer = BytesIO()
+    Image.new('RGB', (1200, 800), color=(80, 120, 160)).save(buffer, format='JPEG')
+    return buffer.getvalue()
 
 
 @pytest.fixture()
