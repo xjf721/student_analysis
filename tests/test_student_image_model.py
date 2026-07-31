@@ -80,6 +80,19 @@ def test_student_can_have_only_one_image(app, two_classes):
         db.session.rollback()
 
 
+def test_cross_class_student_image_binding_is_rejected(app, two_classes):
+    first_id, second_id = two_classes
+    with app.app_context():
+        student = Student(student_no='IMAGE003', name='Student Three', class_id=second_id)
+        db.session.add(student)
+        db.session.flush()
+        db.session.add(create_image(first_id, student_id=student.id))
+
+        with pytest.raises(ValueError, match='class_id'):
+            db.session.commit()
+        db.session.rollback()
+
+
 def test_repository_scopes_suffix_search_to_requested_class(app, two_classes):
     first_id, second_id = two_classes
     with app.app_context():

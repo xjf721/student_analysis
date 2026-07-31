@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Student portrait metadata model."""
-from sqlalchemy import Column, ForeignKey, Index, Integer, String
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, ForeignKey, Index, Integer, String, and_, event, select
+from sqlalchemy.engine import Connection
+from sqlalchemy.orm import Mapper, foreign, relationship
 
 from .base import BaseModel
+from .student import Student
 
 
 class StudentImage(BaseModel):
@@ -30,7 +32,14 @@ class StudentImage(BaseModel):
     file_size = Column(Integer, nullable=False)
     content_hash = Column(String(64), nullable=False)
 
-    student = relationship('Student', back_populates='image')
+    student = relationship(
+        'Student',
+        primaryjoin=lambda: and_(
+            foreign(StudentImage.student_id) == Student.id,
+            StudentImage.class_id == Student.class_id,
+        ),
+        back_populates='image',
+    )
 
     @property
     def media_url(self) -> str:
@@ -55,3 +64,21 @@ class StudentImage(BaseModel):
             'file_size': self.file_size,
             'avatar_url': self.media_url,
         }
+
+
+@event.listens_for(StudentImage, 'before_insert')
+@event.listens_for(StudentImage, 'before_update')
+def validate_student_class(
+    mapper: Mapper,
+    connection: Connection,
+    target: StudentImage,
+) -> None:
+    """Reject image bindings that would cross the student's class boundary."""
+    if target.student_id is None:
+        return
+
+    student_class_id = connection.execute(
+        select(Student.class_id).where(Student.id == target.student_id)
+    ).scalar_one_or_none()
+    if student_class_id != target.class_id:
+        raise ValueError('student_id must belong to the same class_id as the image')
