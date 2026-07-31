@@ -112,5 +112,6 @@ class Student(BaseModel):
             'class_id': self.class_id,
             'class_name': self.class_info.class_name if self.class_info else None,
             'major': self.major,
+            'avatar_url': self.image.media_url if self.image else None,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
         }

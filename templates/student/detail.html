@@ -28,6 +28,53 @@
     .metric-card.red { border-left-color: #dc3545; }
     .metric-card.orange { border-left-color: #fd7e14; }
     .metric-card.blue { border-left-color: #007bff; }
+    .student-basic-layout {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+    }
+    .student-portrait-panel {
+        flex: 0 0 132px;
+        text-align: center;
+    }
+    .student-avatar,
+    .student-avatar-default {
+        width: 132px;
+        height: 166px;
+        border-radius: 8px;
+    }
+    .student-avatar {
+        display: block;
+        object-fit: cover;
+        border: 1px solid #dee2e6;
+        background: #f8f9fa;
+    }
+    .student-avatar-default {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #e9ecef;
+        color: #6c757d;
+        font-size: 42px;
+        font-weight: 600;
+        border: 1px dashed #adb5bd;
+    }
+    .student-avatar-actions .btn {
+        width: 132px;
+    }
+    .student-basic-info {
+        min-width: 0;
+        flex: 1;
+    }
+    @media (max-width: 1199.98px) {
+        .student-basic-layout {
+            flex-direction: column;
+            align-items: center;
+        }
+        .student-basic-info {
+            width: 100%;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -57,12 +104,32 @@
                         <h3 class="card-title">基础信息</h3>
                     </div>
                     <div class="card-body">
-                        <table class="table table-borderless">
-                            <tr><th width="100">学号</th><td id="student-no">--</td></tr>
-                            <tr><th>姓名</th><td id="student-name">--</td></tr>
-                            <tr><th>班级</th><td id="student-class">--</td></tr>
-                            <tr><th>专业</th><td id="student-major">--</td></tr>
-                        </table>
+                        <div class="student-basic-layout">
+                            <div class="student-portrait-panel">
+                                <img id="student-avatar" class="student-avatar d-none"
+                                     alt="学生照片">
+                                <div id="student-avatar-default" class="student-avatar-default"
+                                     aria-label="默认头像">--</div>
+                                <div class="student-avatar-actions mt-2">
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-primary avatar-library-open mb-1">
+                                        从图像库选择
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary avatar-local-upload-button">
+                                        本地上传
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="student-basic-info">
+                                <table class="table table-borderless mb-0">
+                                    <tr><th width="72">学号</th><td id="student-no">--</td></tr>
+                                    <tr><th>姓名</th><td id="student-name">--</td></tr>
+                                    <tr><th>班级</th><td id="student-class">--</td></tr>
+                                    <tr><th>专业</th><td id="student-major">--</td></tr>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -284,12 +351,20 @@
         </div>
     </div>
 </section>
+{% include 'student/_avatar_modal.html' %}
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/student_avatar.js') }}"></script>
 <script>
 $(function() {
     var studentId = '{{ student_id }}';
+    var avatarControl = StudentAvatar.mount({
+        studentId: studentId,
+        avatarSelector: '#student-avatar',
+        defaultSelector: '#student-avatar-default',
+        nameSelector: '#student-name'
+    });
     
     loadStudentDetail();
     loadRadarChart();
@@ -302,6 +377,7 @@ $(function() {
             $('#student-name').text(data.name);
             $('#student-class').text(data.class_name || '--');
             $('#student-major').text(data.major || '--');
+            avatarControl.render(data.avatar_url, data.name);
             renderBehaviorMetrics(data.behavior);
             renderPracticeMetrics(data.practice);
             renderProfileMetrics(data.profile_metrics, data.theory_practice, data.practice);

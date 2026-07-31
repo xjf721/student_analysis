@@ -5,6 +5,7 @@ from models import (
     ImportRecord,
     Student,
     StudentBehavior,
+    StudentImage,
     StudentKnowledgeMastery,
     WarningRecord,
     db,
@@ -172,6 +173,53 @@ def test_lists_search_details_and_dashboard_are_scoped(app, client, two_classes)
     assert stats['avg_attendance_rate'] == 90
     assert stats['warning_count'] == 1
     assert stats['weak_knowledge_count'] == 1
+
+
+def test_student_avatar_urls_follow_active_class_scope(app, client, two_classes):
+    """Student detail APIs never reveal another class's portrait URL."""
+    first_id, second_id = two_classes
+    first_student_id, second_student_id = seed_two_class_students(
+        app, first_id, second_id
+    )
+    with app.app_context():
+        first_image = StudentImage(
+            class_id=first_id,
+            student_id=first_student_id,
+            original_filename='first.jpg',
+            storage_filename='first-isolated.jpg',
+            match_status='matched',
+            mime_type='image/jpeg',
+            file_size=100,
+            content_hash='1' * 64,
+        )
+        second_image = StudentImage(
+            class_id=second_id,
+            student_id=second_student_id,
+            original_filename='second.jpg',
+            storage_filename='second-isolated.jpg',
+            match_status='matched',
+            mime_type='image/jpeg',
+            file_size=100,
+            content_hash='2' * 64,
+        )
+        db.session.add_all([first_image, second_image])
+        db.session.commit()
+        first_image_id = first_image.id
+        second_image_id = second_image.id
+    login_and_select(client, first_id)
+
+    detail = client.get(f'/api/student/{first_student_id}').get_json()
+    overview = client.get(f'/api/student/{first_student_id}/overview').get_json()
+
+    assert detail['avatar_url'] == f'/media/student-images/{first_image_id}'
+    assert overview['basic']['avatar_url'] == (
+        f'/media/student-images/{first_image_id}'
+    )
+    assert client.get(f'/api/student/{second_student_id}').status_code == 404
+    assert client.get(
+        f'/api/student/{second_student_id}/overview'
+    ).status_code == 404
+    assert client.get(f'/media/student-images/{second_image_id}').status_code == 404
 
 
 def test_query_class_id_cannot_override_session(app, client, two_classes):

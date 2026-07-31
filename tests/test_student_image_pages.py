@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from models import Student, StudentImage, db
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -13,6 +15,140 @@ def login_and_select(client, class_id: int) -> None:
         'password': 'correct-password',
     })
     client.post(f'/api/classes/{class_id}/select')
+
+
+def add_image(class_id: int, student_id: int, suffix: str) -> StudentImage:
+    """Persist one matched image without touching the filesystem."""
+    image = StudentImage(
+        class_id=class_id,
+        student_id=student_id,
+        original_filename=f'portrait-{suffix}.jpg',
+        storage_filename=f'portrait-{suffix}.jpg',
+        match_status='matched',
+        mime_type='image/jpeg',
+        file_size=123,
+        content_hash=suffix.zfill(64),
+    )
+    db.session.add(image)
+    db.session.commit()
+    return image
+
+
+def test_student_apis_return_persisted_avatar_url_or_null(
+    app, client, two_classes
+):
+    """Both student APIs expose only the persisted protected portrait URL."""
+    first_class_id, _ = two_classes
+    with app.app_context():
+        pictured = Student(
+            student_no='PAGE001', name='Pictured Student', class_id=first_class_id
+        )
+        unpictured = Student(
+            student_no='PAGE002', name='Unpictured Student', class_id=first_class_id
+        )
+        db.session.add_all([pictured, unpictured])
+        db.session.flush()
+        image = add_image(first_class_id, pictured.id, '101')
+        pictured_id = pictured.id
+        unpictured_id = unpictured.id
+        image_id = image.id
+    login_and_select(client, first_class_id)
+
+    detail = client.get(f'/api/student/{pictured_id}').get_json()
+    overview = client.get(f'/api/student/{pictured_id}/overview').get_json()
+    empty_detail = client.get(f'/api/student/{unpictured_id}').get_json()
+    empty_overview = client.get(
+        f'/api/student/{unpictured_id}/overview'
+    ).get_json()
+
+    assert detail['avatar_url'] == f'/media/student-images/{image_id}'
+    assert overview['basic']['avatar_url'] == f'/media/student-images/{image_id}'
+    assert empty_detail['avatar_url'] is None
+    assert empty_overview['basic']['avatar_url'] is None
+
+
+def test_student_profile_page_uses_shared_portrait_controls(
+    app, client, two_classes
+):
+    """The profile renders the shared 132 by 166 avatar chooser contract."""
+    first_class_id, _ = two_classes
+    with app.app_context():
+        student = Student(
+            student_no='PROFILE001', name='Profile Student', class_id=first_class_id
+        )
+        db.session.add(student)
+        db.session.commit()
+        student_id = student.id
+    login_and_select(client, first_class_id)
+
+    response = client.get(f'/student/{student_id}')
+
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    for marker in (
+        'id="student-avatar"',
+        'id="student-avatar-default"',
+        'width: 132px',
+        'height: 166px',
+        'object-fit: cover',
+        '从图像库选择',
+        '本地上传',
+        'avatar-library-modal',
+        'avatar-library-grid',
+        'avatar-local-upload',
+        '/static/js/student_avatar.js',
+        'StudentAvatar.mount({',
+    ):
+        assert marker in page
+    template = (PROJECT_ROOT / 'templates' / 'student' / 'detail.html').read_text(
+        encoding='utf-8'
+    )
+    assert "{% include 'student/_avatar_modal.html' %}" in template
+
+
+def test_student_overview_page_uses_responsive_three_column_avatar_header(
+    app, client, two_classes
+):
+    """The overview header separates portrait, information, and actions."""
+    first_class_id, _ = two_classes
+    with app.app_context():
+        student = Student(
+            student_no='OVERVIEW001', name='Overview Student', class_id=first_class_id
+        )
+        db.session.add(student)
+        db.session.commit()
+        student_id = student.id
+    login_and_select(client, first_class_id)
+
+    response = client.get(f'/student/{student_id}/overview')
+
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    for marker in (
+        'student-overview-header',
+        'student-overview-portrait',
+        'student-overview-info',
+        'student-overview-actions',
+        'grid-template-columns: 160px minmax(0, 1fr) auto',
+        '@media (max-width: 767.98px)',
+        'id="student-avatar"',
+        'id="student-avatar-default"',
+        'width: 132px',
+        'height: 166px',
+        'object-fit: cover',
+        '从图像库选择',
+        '本地上传',
+        'avatar-library-modal',
+        'avatar-library-grid',
+        'avatar-local-upload',
+        '/static/js/student_avatar.js',
+        'StudentAvatar.mount({',
+    ):
+        assert marker in page
+    template = (
+        PROJECT_ROOT / 'templates' / 'student' / 'overview.html'
+    ).read_text(encoding='utf-8')
+    assert "{% include 'student/_avatar_modal.html' %}" in template
 
 
 def test_image_library_page_exposes_upload_filter_grid_and_result_contract(

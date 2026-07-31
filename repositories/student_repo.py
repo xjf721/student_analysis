@@ -225,6 +225,7 @@ class StudentRepository:
                 'name': student.name,
                 'class_name': student.class_info.class_name if student.class_info else None,
                 'major': student.major,
+                'avatar_url': student.image.media_url if student.image else None,
                 'created_at': student.created_at.strftime('%Y-%m-%d %H:%M:%S') if student.created_at else None,
                 'updated_at': student.updated_at.strftime('%Y-%m-%d %H:%M:%S') if student.updated_at else None
             }
