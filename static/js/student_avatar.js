@@ -14,17 +14,6 @@
     function requestJson(url, options) {
         var requestOptions = Object.assign({}, options || {});
         var method = String(requestOptions.method || 'GET').toUpperCase();
-        if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-            var csrfMeta = document.querySelector('meta[name="csrf-token"]');
-            var csrfToken = csrfMeta ? csrfMeta.content : '';
-            var requestHeaders = new Headers(requestOptions.headers || {});
-            if (csrfToken) {
-                requestHeaders.set('X-CSRFToken', csrfToken);
-            }
-            requestOptions.headers = requestHeaders;
-        }
-        var requestOptions = Object.assign({}, options || {});
-        var method = String(requestOptions.method || 'GET').toUpperCase();
         if (['GET', 'HEAD', 'OPTIONS'].indexOf(method) === -1) {
             var csrfMeta = document.querySelector('meta[name="csrf-token"]');
             var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
