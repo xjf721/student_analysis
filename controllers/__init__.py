@@ -9,6 +9,7 @@ from .warning_controller import warning_bp
 from .import_controller import import_bp
 from .auth_controller import auth_bp
 from .class_controller import classes_bp
+from .student_image_controller import student_image_bp
 
 __all__ = [
     'dashboard_bp',
@@ -18,4 +19,5 @@ __all__ = [
     'import_bp',
     'auth_bp',
     'classes_bp',
+    'student_image_bp',
 ]

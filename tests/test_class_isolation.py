@@ -64,7 +64,10 @@ def seed_two_class_students(app, first_id, second_id):
 
 @pytest.mark.parametrize(
     'path',
-    ['/', '/students', '/student/1', '/student/1/overview', '/knowledge', '/warning'],
+    [
+        '/', '/students', '/student/1', '/student/1/overview', '/knowledge', '/warning',
+        '/student-images', '/media/student-images/1',
+    ],
 )
 def test_business_pages_require_active_class(client, path):
     client.post('/login', data={'username': 'admin', 'password': 'correct-password'})
@@ -102,6 +105,11 @@ def test_business_pages_require_active_class(client, path):
         ('get', '/api/warning/distribution'),
         ('get', '/api/warning/by-level/2'),
         ('post', '/api/warning/refresh'),
+        ('get', '/api/student-images'),
+        ('post', '/api/student-images/batch'),
+        ('post', '/api/student-images/1/bind'),
+        ('delete', '/api/student-images/1'),
+        ('post', '/api/student/1/image'),
     ],
 )
 def test_business_apis_require_active_class(client, method, path):
