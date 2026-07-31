@@ -80,6 +80,24 @@ def test_student_can_have_only_one_image(app, two_classes):
         db.session.rollback()
 
 
+def test_same_class_content_hash_is_database_unique(app, two_classes):
+    """The database prevents concurrent duplicate image rows in one class."""
+    class_id, _ = two_classes
+    with app.app_context():
+        db.session.add_all([
+            create_image(class_id, storage_filename='hash-first.jpg'),
+            create_image(
+                class_id,
+                original_filename='hash-second.jpg',
+                storage_filename='hash-second.jpg',
+            ),
+        ])
+
+        with pytest.raises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
+
+
 def test_cross_class_student_image_binding_is_rejected(app, two_classes):
     first_id, second_id = two_classes
     with app.app_context():

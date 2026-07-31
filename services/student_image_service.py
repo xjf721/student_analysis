@@ -8,11 +8,13 @@ from pathlib import Path, PurePosixPath
 import re
 from typing import BinaryIO, Optional, Sequence
 from uuid import uuid4
+import warnings
 import zipfile
 
 from flask import current_app
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import false
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.elements import ColumnElement
 
 from models import Student, StudentImage, db
@@ -22,6 +24,8 @@ from werkzeug.datastructures import FileStorage
 
 SUFFIX_PATTERN = re.compile(r'^(?P<number>\d{2})-(?P<name>.+)$')
 FULL_PATTERN = re.compile(r'^(?P<number>\d{3,})(?P<name>[^\d].*)$')
+SUPPORTED_IMAGE_FORMATS = frozenset({'JPEG', 'PNG', 'WEBP'})
+MAX_DECODED_IMAGE_PIXELS = 20_000_000
 
 
 class ImageProcessingError(ValueError):
@@ -111,9 +115,28 @@ class StudentImageService:
             raise ImageProcessingError('invalid_image', '图片文件为空')
 
         try:
-            with Image.open(BytesIO(source)) as candidate:
-                candidate.verify()
-        except (UnidentifiedImageError, OSError, ValueError, SyntaxError) as error:
+            with warnings.catch_warnings():
+                warnings.simplefilter('error', Image.DecompressionBombWarning)
+                with Image.open(BytesIO(source)) as candidate:
+                    if candidate.format not in SUPPORTED_IMAGE_FORMATS:
+                        raise ImageProcessingError(
+                            'unsupported_image_format', '图片内容格式不受支持'
+                        )
+                    if candidate.width * candidate.height > MAX_DECODED_IMAGE_PIXELS:
+                        raise ImageProcessingError(
+                            'image_too_many_pixels', '图片解码尺寸超过安全上限'
+                        )
+                    candidate.verify()
+        except ImageProcessingError:
+            raise
+        except (
+            Image.DecompressionBombError,
+            Image.DecompressionBombWarning,
+            UnidentifiedImageError,
+            OSError,
+            ValueError,
+            SyntaxError,
+        ) as error:
             raise ImageProcessingError('invalid_image', '文件不是有效图片') from error
         return source
 
@@ -142,11 +165,20 @@ class StudentImageService:
     def _normalize_to_temporary(source: bytes, temporary_path: Path) -> int:
         """Normalize verified source bytes into a bounded RGB JPEG temporary file."""
         try:
-            with Image.open(BytesIO(source)) as opened:
-                normalized = ImageOps.exif_transpose(opened).convert('RGB')
-                normalized.thumbnail((1024, 1024))
-                normalized.save(temporary_path, format='JPEG', quality=85)
-        except (UnidentifiedImageError, OSError, ValueError, SyntaxError) as error:
+            with warnings.catch_warnings():
+                warnings.simplefilter('error', Image.DecompressionBombWarning)
+                with Image.open(BytesIO(source)) as opened:
+                    normalized = ImageOps.exif_transpose(opened).convert('RGB')
+                    normalized.thumbnail((1024, 1024))
+                    normalized.save(temporary_path, format='JPEG', quality=85)
+        except (
+            Image.DecompressionBombError,
+            Image.DecompressionBombWarning,
+            UnidentifiedImageError,
+            OSError,
+            ValueError,
+            SyntaxError,
+        ) as error:
             temporary_path.unlink(missing_ok=True)
             raise ImageProcessingError('invalid_image', '图片无法完成标准化') from error
         return temporary_path.stat().st_size
@@ -228,6 +260,19 @@ class StudentImageService:
             db.session.flush()
             os.replace(temporary_path, final_path)
             db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            temporary_path.unlink(missing_ok=True)
+            final_path.unlink(missing_ok=True)
+            duplicate = StudentImageRepository.find_duplicate(class_id, content_hash)
+            if duplicate is not None:
+                return {
+                    'success': True,
+                    'status': 'duplicate',
+                    'filename': original_filename,
+                    'image': duplicate.to_dict(),
+                }
+            raise
         except Exception:
             db.session.rollback()
             temporary_path.unlink(missing_ok=True)

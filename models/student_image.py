@@ -1,6 +1,16 @@
 # -*- coding: utf-8 -*-
 """Student portrait metadata model."""
-from sqlalchemy import Column, ForeignKey, Index, Integer, String, and_, event, select
+from sqlalchemy import (
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    and_,
+    event,
+    select,
+)
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm import Mapper, foreign, relationship
 
@@ -16,7 +26,9 @@ class StudentImage(BaseModel):
         Index('ix_student_image_class_status', 'class_id', 'match_status'),
         Index('ix_student_image_class_parsed_name', 'class_id', 'parsed_name'),
         Index('ix_student_image_class_parsed_student_no', 'class_id', 'parsed_student_no'),
-        Index('ix_student_image_class_content_hash', 'class_id', 'content_hash'),
+        UniqueConstraint(
+            'class_id', 'content_hash', name='uq_student_image_class_content_hash'
+        ),
     )
 
     class_id = Column(Integer, ForeignKey('class_info.id'), nullable=False, index=True)

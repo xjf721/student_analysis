@@ -1,7 +1,9 @@
 """Tests for safe student-image processing and lifecycle operations."""
 
+import hashlib
 from io import BytesIO
 from pathlib import Path
+import warnings
 import zipfile
 
 import pytest
@@ -22,6 +24,13 @@ def jpeg_with_color(color: tuple[int, int, int]) -> bytes:
     """Return a small valid JPEG whose bytes vary predictably by color."""
     buffer = BytesIO()
     Image.new('RGB', (20, 10), color=color).save(buffer, format='JPEG')
+    return buffer.getvalue()
+
+
+def encoded_image(format_name: str, size: tuple[int, int], mode: str = 'RGB') -> bytes:
+    """Return a solid image encoded in the requested real source format."""
+    buffer = BytesIO()
+    Image.new(mode, size, color=0).save(buffer, format=format_name)
     return buffer.getvalue()
 
 
@@ -72,6 +81,20 @@ def test_validation_rejects_unsupported_extension(app, two_classes, jpeg_bytes):
     assert error.value.code == 'unsupported_extension'
 
 
+def test_validation_rejects_gif_content_renamed_as_jpeg(app, two_classes):
+    """An allowed suffix cannot disguise a Pillow-supported source format."""
+    class_id, _ = two_classes
+    disguised_gif = encoded_image('GIF', (20, 10))
+    with app.app_context(), pytest.raises(ImageProcessingError) as error:
+        StudentImageService.process_upload(
+            class_id, uploaded_file('disguised.jpg', disguised_gif)
+        )
+
+    assert error.value.code == 'unsupported_image_format'
+    with app.app_context():
+        assert StudentImage.query.filter_by(class_id=class_id).count() == 0
+
+
 def test_validation_rejects_source_larger_than_five_megabytes(app, two_classes):
     """The per-image byte limit is enforced before image decoding."""
     class_id, _ = two_classes
@@ -82,6 +105,36 @@ def test_validation_rejects_source_larger_than_five_megabytes(app, two_classes):
         )
 
     assert error.value.code == 'file_too_large'
+
+
+def test_validation_rejects_decoded_pixel_count_above_service_limit(app, two_classes):
+    """A compact source cannot allocate an unbounded RGB image before thumbnailing."""
+    class_id, _ = two_classes
+    compact_large_png = encoded_image('PNG', (4600, 4600), mode='1')
+    assert len(compact_large_png) < 5 * 1024 * 1024
+
+    with app.app_context(), pytest.raises(ImageProcessingError) as error:
+        StudentImageService.process_upload(
+            class_id, uploaded_file('too-many-pixels.png', compact_large_png)
+        )
+
+    assert error.value.code == 'image_too_many_pixels'
+
+
+def test_validation_converts_decompression_bomb_warning_to_image_error(app, two_classes):
+    """Pillow bomb warnings are rejected rather than leaking or continuing decode."""
+    class_id, _ = two_classes
+    bomb_png = encoded_image('PNG', (10_000, 10_000), mode='1')
+    assert len(bomb_png) < 5 * 1024 * 1024
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', Image.DecompressionBombWarning)
+        with app.app_context(), pytest.raises(ImageProcessingError) as error:
+            StudentImageService.process_upload(
+                class_id, uploaded_file('bomb.png', bomb_png)
+            )
+
+    assert error.value.code == 'invalid_image'
 
 
 def test_normalize_writes_real_bounded_jpeg(app, two_classes, jpeg_bytes):
@@ -220,6 +273,53 @@ def test_duplicate_hash_is_allowed_in_another_class(app, two_classes, jpeg_bytes
         assert first['status'] == 'pending'
         assert second['status'] == 'pending'
         assert StudentImage.query.count() == 2
+
+
+def test_duplicate_integrity_race_returns_existing_row(
+    app, two_classes, jpeg_bytes, monkeypatch
+):
+    """A stale duplicate precheck recovers from the database uniqueness race."""
+    class_id, _ = two_classes
+    content_hash = hashlib.sha256(jpeg_bytes).hexdigest()
+    with app.app_context():
+        existing = StudentImage(
+            class_id=class_id,
+            original_filename='existing.jpg',
+            storage_filename='existing.jpg',
+            match_status='pending',
+            mime_type='image/jpeg',
+            file_size=1,
+            content_hash=content_hash,
+        )
+        db.session.add(existing)
+        db.session.commit()
+        existing_id = existing.id
+
+        actual_find_duplicate = StudentImageRepository.find_duplicate
+        call_count = 0
+
+        def stale_then_current(target_class_id: int, target_hash: str):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return None
+            return actual_find_duplicate(target_class_id, target_hash)
+
+        monkeypatch.setattr(
+            StudentImageRepository,
+            'find_duplicate',
+            staticmethod(stale_then_current),
+        )
+
+        result = StudentImageService.process_upload(
+            class_id, uploaded_file('racing.jpg', jpeg_bytes)
+        )
+
+        assert result['status'] == 'duplicate'
+        assert result['image']['id'] == existing_id
+        assert StudentImage.query.filter_by(class_id=class_id).count() == 1
+        class_folder = Path(app.config['STUDENT_IMAGE_FOLDER']) / str(class_id)
+        assert not any(class_folder.iterdir())
 
 
 def test_preferred_student_upload_binds_immediately_within_class(
