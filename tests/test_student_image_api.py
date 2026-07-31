@@ -360,6 +360,42 @@ def test_duplicate_student_upload_binds_pending_image(
         assert db.session.get(StudentImage, image_id).student_id == student_id
 
 
+def test_pending_duplicate_replaces_student_portrait_without_confirmation(
+    app, client, two_classes
+):
+    """A local upload can replace the target with identical pending library content."""
+    first_class_id, _ = two_classes
+    existing_bytes = colored_jpeg((10, 20, 30))
+    duplicate_bytes = colored_jpeg((40, 50, 60))
+    with app.app_context():
+        student = add_student(first_class_id, 'APIPENDING002', 'API Pending Replace')
+        existing = StudentImageService.process_upload(
+            first_class_id,
+            FileStorage(stream=BytesIO(existing_bytes), filename='existing.jpg'),
+            preferred_student_id=student.id,
+        )
+        pending = upload_image(first_class_id, 'pending.jpg', duplicate_bytes)
+        student_id = student.id
+        existing_id = existing['image']['id']
+        pending_id = pending.id
+    login_and_select(client, first_class_id)
+
+    response = client.post(
+        f'/api/student/{student_id}/image',
+        data={'file': (BytesIO(duplicate_bytes), 'same.jpg')},
+        content_type='multipart/form-data',
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()['image']['id'] == pending_id
+    assert response.get_json()['image']['student_id'] == student_id
+    with app.app_context():
+        assert db.session.get(StudentImage, existing_id) is None
+        assert StudentImageRepository.get_for_student(
+            student_id, first_class_id
+        ).id == pending_id
+
+
 def test_duplicate_student_upload_owned_elsewhere_requires_confirmation(
     app, client, two_classes, jpeg_bytes
 ):

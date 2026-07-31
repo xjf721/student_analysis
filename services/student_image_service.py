@@ -310,7 +310,13 @@ class StudentImageService:
                 class_id,
                 duplicate.id,
                 preferred_student_id,
-                confirm_replace=confirm_replace,
+                confirm_replace=(
+                    confirm_replace
+                    or (
+                        duplicate.student_id is None
+                        and duplicate.match_status == 'pending'
+                    )
+                ),
             )
         return {
             'success': True,

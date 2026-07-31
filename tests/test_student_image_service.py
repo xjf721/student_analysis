@@ -321,6 +321,42 @@ def test_preferred_pending_duplicate_binds_to_target(
         assert db.session.get(StudentImage, pending.id).student_id == student.id
 
 
+def test_preferred_pending_duplicate_replaces_existing_target_without_confirmation(
+    app, two_classes
+):
+    """A direct student upload may replace its target using an unowned duplicate."""
+    class_id, _ = two_classes
+    existing_bytes = jpeg_with_color((10, 20, 30))
+    duplicate_bytes = jpeg_with_color((40, 50, 60))
+    with app.app_context():
+        student = add_student(class_id, 'DUPREPLACE001', 'Duplicate Replace')
+        existing_result = StudentImageService.process_upload(
+            class_id,
+            uploaded_file('existing.jpg', existing_bytes),
+            preferred_student_id=student.id,
+        )
+        existing = db.session.get(StudentImage, existing_result['image']['id'])
+        existing_id = existing.id
+        existing_path = StudentImageService.get_storage_path(existing)
+        pending = pending_image(class_id, 'pending.jpg', duplicate_bytes)
+        pending_id = pending.id
+        pending_path = StudentImageService.get_storage_path(pending)
+
+        result = StudentImageService.process_upload(
+            class_id,
+            uploaded_file('same.jpg', duplicate_bytes),
+            preferred_student_id=student.id,
+        )
+
+        assert result['status'] == 'duplicate'
+        assert result['image']['id'] == pending_id
+        assert result['image']['student_id'] == student.id
+        assert db.session.get(StudentImage, existing_id) is None
+        assert StudentImageRepository.get_for_student(student.id, class_id).id == pending_id
+        assert not existing_path.exists()
+        assert pending_path.exists()
+
+
 def test_preferred_duplicate_owned_by_other_student_requires_confirmation(
     app, two_classes, jpeg_bytes
 ):
