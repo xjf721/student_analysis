@@ -15,7 +15,6 @@ set ADMIN_PASSWORD_HASH = "JrFFjb1jk0mzUOZKmf2R-XYphgJmzFPAkgQuwtQ_mlVUob9DWfN-o
 :: $env:SECRET_KEY = "粘贴生成的随机密钥"
 :: $env:SESSION_COOKIE_SECURE = "true"
 set MYSQL_USER = "root"
-set MYSQL_PASSWORD = "Root@123456"
 
 :: 必需的登录凭据必须在任何数据库访问之前检查。
 if not defined ADMIN_USERNAME (

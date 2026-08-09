@@ -896,6 +896,11 @@ def test_successful_upload_warns_when_analysis_summary_reports_failure(
         'success': True,
         'import_type': 'test',
         'imported_count': 1,
+        'image_matching': {
+            'checked_count': 0,
+            'matched_count': 0,
+            'remaining_count': 0,
+        },
         'analysis': analysis_result,
         'analysis_warning': '数据导入成功，但自动分析未全部完成，请稍后重新分析',
     }

@@ -43,6 +43,7 @@ from services.importers.base_importer import (
 from services.importers.parser_utils import detect_file_type, extract_class_info_from_filename
 from services.analysis import BehaviorAnalyzer, KnowledgeAnalyzer, PracticeAnalyzer, WarningEngine
 from services.class_context import get_active_class_id, require_active_class
+from services.student_image_service import StudentImageService
 
 import_bp = Blueprint('import', __name__)
 
@@ -169,6 +170,17 @@ def upload_file():
     if len(files) == 1:
         response.pop('filename', None)
     if any(item.get('success') for item in results):
+        try:
+            response['image_matching'] = StudentImageService.rematch_pending(
+                target_class.id
+            )
+        except Exception as exc:
+            current_app.logger.exception(
+                'Student image rematch failed for class %s', target_class.id
+            )
+            response['image_matching_warning'] = (
+                f'学生数据导入成功，但头像自动关联失败：{exc}'
+            )
         try:
             analysis_result = run_all_analysis(target_class.id)
             response['analysis'] = analysis_result
@@ -308,6 +320,17 @@ def import_folder():
     }
 
     if imported_files:
+        try:
+            response['image_matching'] = StudentImageService.rematch_pending(
+                target_class.id
+            )
+        except Exception as exc:
+            current_app.logger.exception(
+                'Student image rematch failed for class %s', target_class.id
+            )
+            response['image_matching_warning'] = (
+                f'学生数据导入成功，但头像自动关联失败：{exc}'
+            )
         try:
             response['analysis'] = run_all_analysis(target_class.id)
         except Exception as e:

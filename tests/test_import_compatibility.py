@@ -1,8 +1,14 @@
+from io import BytesIO
 from pathlib import Path
 
+import pytest
+from werkzeug.datastructures import FileStorage
+
 from app import create_app
-from models import ImportRecord, db
+from controllers import import_controller
+from models import ImportRecord, Student, StudentImage, db
 from services.importers.base_importer import BaseImporter
+from services.student_image_service import StudentImageService
 
 
 class LegacyImporter(BaseImporter):
@@ -18,6 +24,88 @@ class LegacyImporter(BaseImporter):
 
     def _save_to_db(self) -> int:
         return 1
+
+
+def login_and_select(client, class_id: int) -> None:
+    """Authenticate and select the class used by import APIs."""
+    client.post('/login', data={
+        'username': 'admin', 'password': 'correct-password',
+    })
+    client.post(f'/api/classes/{class_id}/select')
+
+
+@pytest.mark.parametrize('import_mode', ['upload', 'folder'])
+def test_successful_import_rematches_images_only_in_target_class(
+    app, client, two_classes, jpeg_bytes, tmp_path, monkeypatch, import_mode
+):
+    """Each successful import request rematches only its selected class."""
+    first_id, second_id = two_classes
+    image_filename = '01-李少飞.jpg'
+    with app.app_context():
+        first_result = StudentImageService.process_upload(
+            first_id,
+            FileStorage(stream=BytesIO(jpeg_bytes), filename=image_filename),
+        )
+        second_result = StudentImageService.process_upload(
+            second_id,
+            FileStorage(stream=BytesIO(jpeg_bytes), filename=image_filename),
+        )
+        first_image_id = first_result['image']['id']
+        second_image_id = second_result['image']['id']
+
+    def successful_import(
+        file_path: str, class_id: int, uploaded_by: str, **kwargs
+    ) -> dict:
+        student = Student.query.filter_by(
+            class_id=class_id, student_no='20260001'
+        ).first()
+        if student is None:
+            db.session.add(
+                Student(student_no='20260001', name='李少飞', class_id=class_id)
+            )
+            db.session.commit()
+        return {'success': True, 'message': 'imported', 'imported_count': 1}
+
+    monkeypatch.setattr(import_controller, 'import_data', successful_import)
+    monkeypatch.setattr(
+        import_controller,
+        'run_all_analysis',
+        lambda class_id: {'summary': {'success': True}},
+    )
+    login_and_select(client, first_id)
+
+    if import_mode == 'upload':
+        response = client.post(
+            '/api/import/upload',
+            data={
+                'class_id': str(first_id),
+                'file': [
+                    (BytesIO(b'first excel'), 'alpha.xlsx'),
+                    (BytesIO(b'second excel'), 'beta.xlsx'),
+                ],
+            },
+            content_type='multipart/form-data',
+        )
+    else:
+        (tmp_path / 'alpha.xlsx').write_bytes(b'first excel')
+        (tmp_path / 'beta.xlsx').write_bytes(b'second excel')
+        response = client.post('/api/import/folder', json={
+            'class_id': first_id,
+            'folder': str(tmp_path),
+        })
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['image_matching']['checked_count'] == 1
+    assert payload['image_matching']['matched_count'] == 1
+    with app.app_context():
+        imported_student = Student.query.filter_by(
+            class_id=first_id, student_no='20260001'
+        ).one()
+        assert db.session.get(StudentImage, first_image_id).student_id == imported_student.id
+        untouched = db.session.get(StudentImage, second_image_id)
+        assert untouched.student_id is None
+        assert untouched.match_status == 'pending'
 
 
 def test_legacy_filename_duplicate_lookup_remains_supported(app, two_classes):

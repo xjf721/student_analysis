@@ -16,7 +16,7 @@ from extensions import csrf, limiter
 from models import init_db
 from controllers import (
     auth_bp, classes_bp, dashboard_bp, import_bp, knowledge_bp,
-    student_bp, warning_bp,
+    student_bp, student_image_bp, warning_bp,
 )
 from services.class_context import install_request_guards, install_template_context
 
@@ -79,6 +79,7 @@ def ensure_directories(app: Flask) -> None:
     """确保必要的目录存在"""
     directories = [
         app.config.get('UPLOAD_FOLDER', 'uploads'),
+        app.config['STUDENT_IMAGE_FOLDER'],
         'logs',
         'static',
         'templates'
@@ -120,6 +121,7 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(knowledge_bp)
     app.register_blueprint(warning_bp)
     app.register_blueprint(import_bp)
+    app.register_blueprint(student_image_bp)
 
 
 def register_error_handlers(app: Flask) -> None:

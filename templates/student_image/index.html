@@ -1,0 +1,576 @@
+{% extends "base.html" %}
+
+{% block title %}学生图像库 - 教学过程智能分析与预警平台{% endblock %}
+
+{% block extra_css %}
+<style>
+    .student-image-card {
+        height: 100%;
+    }
+    .student-image-thumbnail {
+        width: 100%;
+        height: 210px;
+        object-fit: cover;
+        background: #f4f6f9;
+    }
+    .student-image-card .card-title {
+        max-width: calc(100% - 72px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .student-image-meta {
+        min-height: 92px;
+        font-size: .875rem;
+    }
+    .upload-panel .form-label {
+        font-weight: 600;
+    }
+    #image-grid > .image-grid-message {
+        width: 100%;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="content pt-3">
+    <div class="container-fluid">
+        <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+            <div>
+                <h1 class="h3 mb-1">学生图像库</h1>
+                <p class="text-muted mb-0">批量导入当前班级照片，并核对自动匹配结果。</p>
+            </div>
+        </div>
+
+        <div id="image-library-alert" aria-live="polite"></div>
+
+        <div class="row">
+            <div class="col-lg-3 col-6">
+                <div class="small-box bg-info">
+                    <div class="inner"><h3 id="total-image-count">0</h3><p>图像总数</p></div>
+                    <div class="icon"><i class="fas fa-images"></i></div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-6">
+                <div class="small-box bg-success">
+                    <div class="inner"><h3 id="matched-image-count">0</h3><p>已关联</p></div>
+                    <div class="icon"><i class="fas fa-user-check"></i></div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-6">
+                <div class="small-box bg-warning">
+                    <div class="inner"><h3 id="pending-image-count">0</h3><p>待关联</p></div>
+                    <div class="icon"><i class="fas fa-user-clock"></i></div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-6">
+                <div class="small-box bg-danger">
+                    <div class="inner"><h3 id="conflict-image-count">0</h3><p>冲突</p></div>
+                    <div class="icon"><i class="fas fa-user-times"></i></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card upload-panel">
+            <div class="card-header"><h3 class="card-title">批量上传</h3></div>
+            <div class="card-body">
+                <div class="row align-items-end">
+                    <div class="col-lg-5 mb-3 mb-lg-0">
+                        <label class="form-label" for="image-upload-input">选择多张图片</label>
+                        <input class="form-control" id="image-upload-input" type="file"
+                               accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple>
+                    </div>
+                    <div class="col-lg-5 mb-3 mb-lg-0">
+                        <label class="form-label" for="zip-upload-input">或选择 ZIP 文件</label>
+                        <input class="form-control" id="zip-upload-input" type="file" accept=".zip,application/zip">
+                    </div>
+                    <div class="col-lg-2">
+                        <button class="btn btn-primary btn-block" id="upload-images-button" type="button">
+                            <i class="fas fa-upload mr-1"></i>开始上传
+                        </button>
+                    </div>
+                </div>
+                <small class="form-text text-muted mt-2">支持 JPG、PNG、WEBP，以及包含这些图片的 ZIP；每个文件会独立显示处理结果。</small>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <div class="row align-items-center">
+                    <div class="col-md-5 mb-2 mb-md-0">
+                        <label class="sr-only" for="image-search">姓名、学号或文件名</label>
+                        <div class="input-group">
+                            <input class="form-control" id="image-search" type="search" placeholder="搜索姓名、学号或文件名">
+                            <button class="btn btn-outline-primary" id="image-search-button" type="button">
+                                <i class="fas fa-search"></i><span class="sr-only">搜索</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="sr-only" for="status-filter">匹配状态</label>
+                        <select class="form-control" id="status-filter">
+                            <option value="">全部状态</option>
+                            <option value="matched">已关联</option>
+                            <option value="pending">待关联</option>
+                            <option value="conflict">冲突</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4 text-md-right mt-2 mt-md-0 text-muted" id="image-page-summary"></div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row" id="image-grid">
+                    <div class="image-grid-message text-center text-muted py-5">正在加载图像……</div>
+                </div>
+                <nav class="d-flex justify-content-center align-items-center mt-3" aria-label="图像库分页">
+                    <button class="btn btn-sm btn-outline-secondary" id="previous-image-page" type="button">上一页</button>
+                    <span class="mx-3" id="image-page-indicator">第 1 / 1 页</span>
+                    <button class="btn btn-sm btn-outline-secondary" id="next-image-page" type="button">下一页</button>
+                </nav>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="modal fade" id="batch-result-modal" tabindex="-1" aria-labelledby="batch-result-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="batch-result-title">批量上传结果</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div id="batch-result-summary" class="alert alert-info"></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped">
+                        <thead><tr><th>源文件</th><th>状态</th><th>说明</th></tr></thead>
+                        <tbody id="batch-result-rows"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="bind-image-modal" tabindex="-1" aria-labelledby="bind-image-title" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="bind-image-title">关联学生</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" id="bind-image-description"></p>
+                <label for="bind-student-select">当前班级学生</label>
+                <select class="form-control" id="bind-student-select">
+                    <option value="">正在加载学生……</option>
+                </select>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="bind-image-submit">确认关联</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="replace-confirmation-modal" tabindex="-1" aria-labelledby="replace-confirmation-title" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="replace-confirmation-title">确认更换关联</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <p id="replace-confirmation-message"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-warning" id="replace-confirmation-submit">确认更换</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="delete-image-modal" tabindex="-1" aria-labelledby="delete-image-title" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="delete-image-title">确认删除图像</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <p id="delete-image-message"></p>
+                <p class="text-danger mb-0">删除后无法恢复；若图像已关联，学生头像也会被移除。</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" id="delete-image-submit">确认删除</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(function () {
+    var imageLibraryState = { page: 1, perPage: 24, status: '', keyword: '' };
+
+    function escapeHtml(value) {
+        return $('<div>').text(value == null ? '' : String(value)).html();
+    }
+
+    function escapeAttribute(value) {
+        return escapeHtml(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function validRecordId(value) {
+        var parsed = Number(value);
+        return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+    }
+
+    function apiErrorMessage(xhr, fallback) {
+        var payload = xhr.responseJSON || {};
+        if (payload.error && typeof payload.error === 'object') {
+            return payload.error.message || fallback;
+        }
+        return payload.message || fallback;
+    }
+
+    function showAlert(level, message) {
+        $('#image-library-alert').html(
+            '<div class="alert alert-' + level + ' alert-dismissible fade show" role="alert">' +
+            escapeHtml(message) +
+            '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="关闭"></button>' +
+            '</div>'
+        );
+    }
+
+    function statusDetails(status) {
+        if (status === 'matched') {
+            return { label: '已关联', badge: 'badge-success' };
+        }
+        if (status === 'conflict') {
+            return { label: '冲突', badge: 'badge-danger' };
+        }
+        return { label: '待关联', badge: 'badge-warning' };
+    }
+
+    function renderImageCard(item) {
+        var imageId = validRecordId(item.id);
+        if (imageId === null) {
+            return '';
+        }
+        var filename = item.original_filename || '未命名图像';
+        var parsedIdentity = (item.parsed_student_no || item.parsed_name)
+            ? [item.parsed_student_no || '--', item.parsed_name || '--'].join(' / ')
+            : '未从文件名解析出身份';
+        var boundStudent = item.student_id
+            ? [item.student_no || '--', item.student_name || '--'].join(' / ')
+            : '尚未关联学生';
+        var status = statusDetails(item.match_status);
+        var actionLabel = item.student_id ? '更换关联' : '人工关联';
+
+        return '<div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-4">' +
+            '<div class="card student-image-card shadow-sm">' +
+            '<img class="card-img-top student-image-thumbnail" data-image-id="' + imageId + '" alt="' + escapeAttribute(filename) + '">' +
+            '<div class="card-body p-3">' +
+            '<div class="d-flex justify-content-between align-items-start mb-2">' +
+            '<h3 class="card-title h6 mb-0" title="' + escapeAttribute(filename) + '">' + escapeHtml(filename) + '</h3>' +
+            '<span class="badge ' + status.badge + '">' + status.label + '</span>' +
+            '</div>' +
+            '<div class="student-image-meta">' +
+            '<div><span class="text-muted">解析：</span>' + escapeHtml(parsedIdentity) + '</div>' +
+            '<div><span class="text-muted">关联：</span>' + escapeHtml(boundStudent) + '</div>' +
+            '<div class="text-muted mt-1">' + escapeHtml(item.match_message || '') + '</div>' +
+            '</div>' +
+            '<div class="btn-group btn-group-sm d-flex mt-3" role="group">' +
+            '<button class="btn btn-outline-primary bind-image-action" type="button" data-image-id="' + imageId + '">' + actionLabel + '</button>' +
+            '<button class="btn btn-outline-danger delete-image-action" type="button" data-image-id="' + imageId + '">删除</button>' +
+            '</div></div></div></div>';
+    }
+
+    function assignProtectedImageSources(items) {
+        items.forEach(function (item) {
+            var imageId = validRecordId(item.id);
+            if (imageId === null || typeof item.avatar_url !== 'string') {
+                return;
+            }
+            $('#image-grid .student-image-thumbnail[data-image-id="' + imageId + '"]')
+                .attr('src', item.avatar_url);
+        });
+    }
+
+    function renderPagination(data) {
+        var pages = Math.max(Number(data.pages) || 0, 1);
+        var page = Math.min(Math.max(Number(data.page) || 1, 1), pages);
+        imageLibraryState.page = page;
+        $('#image-page-indicator').text('第 ' + page + ' / ' + pages + ' 页');
+        $('#image-page-summary').text('共 ' + (Number(data.total) || 0) + ' 张图像');
+        $('#previous-image-page').prop('disabled', page <= 1);
+        $('#next-image-page').prop('disabled', page >= pages);
+    }
+
+    function loadImages() {
+        $('#image-grid').html('<div class="image-grid-message text-center text-muted py-5">正在加载图像……</div>');
+        var query = {
+            page: imageLibraryState.page,
+            per_page: imageLibraryState.perPage,
+            keyword: imageLibraryState.keyword
+        };
+        if (imageLibraryState.status) {
+            query.status = imageLibraryState.status;
+        }
+        $.get('/api/student-images', query)
+            .done(function (data) {
+                var items = Array.isArray(data.items) ? data.items : [];
+                if (
+                    !items.length &&
+                    Number(data.total) > 0 &&
+                    Number(data.pages) > 0 &&
+                    imageLibraryState.page > Number(data.pages)
+                ) {
+                    imageLibraryState.page = Number(data.pages);
+                    loadImages();
+                    return;
+                }
+                if (!items.length) {
+                    $('#image-grid').html('<div class="image-grid-message text-center text-muted py-5">没有符合条件的图像。</div>');
+                } else {
+                    $('#image-grid').html(items.map(renderImageCard).join(''));
+                    assignProtectedImageSources(items);
+                }
+                renderPagination(data);
+            })
+            .fail(function (xhr) {
+                var message = apiErrorMessage(xhr, '加载图像库失败，请稍后重试');
+                $('#image-grid').html('<div class="image-grid-message text-center text-danger py-5">' + escapeHtml(message) + '</div>');
+            });
+    }
+
+    function loadSummaryCount(status, selector) {
+        var query = { page: 1, per_page: 1 };
+        if (status) {
+            query.status = status;
+        }
+        $.get('/api/student-images', query).done(function (data) {
+            $(selector).text(Number(data.total) || 0);
+        });
+    }
+
+    function loadSummaryCounts() {
+        loadSummaryCount('', '#total-image-count');
+        loadSummaryCount('matched', '#matched-image-count');
+        loadSummaryCount('pending', '#pending-image-count');
+        loadSummaryCount('conflict', '#conflict-image-count');
+    }
+
+    function refreshLibrary() {
+        loadImages();
+        loadSummaryCounts();
+    }
+
+    function renderBatchResults(data) {
+        var results = Array.isArray(data.results) ? data.results : [];
+        var rows = results.map(function (item) {
+            var detail = item.error && item.error.message
+                ? item.error.message
+                : (item.image && item.image.match_message ? item.image.match_message : '处理完成');
+            return '<tr><td>' + escapeHtml(item.filename || '') + '</td>' +
+                '<td>' + escapeHtml(item.status || '') + '</td>' +
+                '<td>' + escapeHtml(detail) + '</td></tr>';
+        }).join('');
+        $('#batch-result-summary').text(
+            '共处理 ' + (Number(data.total_files) || 0) + ' 个文件；' +
+            '已关联 ' + (Number(data.matched_count) || 0) + '，' +
+            '待关联 ' + (Number(data.pending_count) || 0) + '，' +
+            '冲突 ' + (Number(data.conflict_count) || 0) + '，' +
+            '重复 ' + (Number(data.duplicate_count) || 0) + '，' +
+            '失败 ' + (Number(data.failed_count) || 0) + '。'
+        );
+        $('#batch-result-rows').html(rows || '<tr><td colspan="3" class="text-center text-muted">没有处理结果</td></tr>');
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('batch-result-modal')).show();
+    }
+
+    function uploadSelectedFiles() {
+        var imageFiles = Array.from($('#image-upload-input')[0].files || []);
+        var zipFiles = Array.from($('#zip-upload-input')[0].files || []);
+        var files = imageFiles.concat(zipFiles);
+        if (!files.length) {
+            showAlert('warning', '请先选择图片或 ZIP 文件');
+            return;
+        }
+
+        var formData = new FormData();
+        files.forEach(function (file) {
+            formData.append('files', file);
+        });
+        var $button = $('#upload-images-button').prop('disabled', true);
+        $.ajax({
+            url: '/api/student-images/batch',
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false
+        }).done(function (data) {
+            $('#image-upload-input, #zip-upload-input').val('');
+            renderBatchResults(data);
+            imageLibraryState.page = 1;
+            refreshLibrary();
+        }).fail(function (xhr) {
+            showAlert('danger', apiErrorMessage(xhr, '批量上传失败，请稍后重试'));
+        }).always(function () {
+            $button.prop('disabled', false);
+        });
+    }
+
+    function openBindModal(imageId, filename) {
+        var $modal = $('#bind-image-modal');
+        $modal.data('image-id', imageId);
+        $('#bind-image-description').text('为“' + filename + '”选择当前班级学生。');
+        $('#bind-student-select').html('<option value="">正在加载学生……</option>');
+        bootstrap.Modal.getOrCreateInstance($modal[0]).show();
+
+        $.get('/api/students').done(function (students) {
+            var options = '<option value="">请选择学生</option>';
+            (Array.isArray(students) ? students : []).forEach(function (student) {
+                var studentId = validRecordId(student.id);
+                if (studentId !== null) {
+                    options += '<option value="' + studentId + '">' +
+                        escapeHtml((student.student_no || '--') + ' / ' + (student.name || '--')) +
+                        '</option>';
+                }
+            });
+            $('#bind-student-select').html(options);
+        }).fail(function (xhr) {
+            $('#bind-student-select').html('<option value="">' + escapeHtml(apiErrorMessage(xhr, '加载学生失败')) + '</option>');
+        });
+    }
+
+    function bindImage(imageId, studentId, confirmReplace) {
+        var payload = { student_id: studentId };
+        if (confirmReplace === true) {
+            payload.confirm_replace = true;
+        }
+        $.ajax({
+            url: '/api/student-images/' + imageId + '/bind',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload)
+        }).done(function () {
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('bind-image-modal')).hide();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('replace-confirmation-modal')).hide();
+            showAlert('success', '学生图像关联已更新');
+            refreshLibrary();
+        }).fail(function (xhr) {
+            if (xhr.status === 409 && xhr.responseJSON && xhr.responseJSON.error) {
+                var error = xhr.responseJSON.error;
+                $('#replace-confirmation-message').text(error.message || '该操作会替换现有头像，是否继续？');
+                $('#replace-confirmation-modal')
+                    .data('image-id', imageId)
+                    .data('student-id', studentId);
+                var bindModalElement = document.getElementById('bind-image-modal');
+                var replaceModal = bootstrap.Modal.getOrCreateInstance(
+                    document.getElementById('replace-confirmation-modal')
+                );
+                $(bindModalElement).one('hidden.bs.modal', function () {
+                    replaceModal.show();
+                });
+                bootstrap.Modal.getOrCreateInstance(bindModalElement).hide();
+                return;
+            }
+            showAlert('danger', apiErrorMessage(xhr, '关联学生失败，请稍后重试'));
+        });
+    }
+
+    function openDeleteModal(imageId, filename) {
+        var $modal = $('#delete-image-modal');
+        $modal.data('image-id', imageId);
+        $('#delete-image-message').text('确定删除“' + filename + '”吗？');
+        bootstrap.Modal.getOrCreateInstance($modal[0]).show();
+    }
+
+    function deleteImage(imageId) {
+        $.ajax({
+            url: '/api/student-images/' + imageId,
+            method: 'DELETE'
+        }).done(function () {
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('delete-image-modal')).hide();
+            showAlert('success', '图像已删除');
+            refreshLibrary();
+        }).fail(function (xhr) {
+            showAlert('danger', apiErrorMessage(xhr, '删除图像失败，请稍后重试'));
+        });
+    }
+
+    $('#upload-images-button').on('click', uploadSelectedFiles);
+    $('#image-search-button').on('click', function () {
+        imageLibraryState.keyword = $('#image-search').val().trim();
+        imageLibraryState.page = 1;
+        loadImages();
+    });
+    $('#image-search').on('keydown', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            $('#image-search-button').trigger('click');
+        }
+    });
+    $('#status-filter').on('change', function () {
+        imageLibraryState.status = this.value;
+        imageLibraryState.page = 1;
+        loadImages();
+    });
+    $('#previous-image-page').on('click', function () {
+        if (imageLibraryState.page > 1) {
+            imageLibraryState.page -= 1;
+            loadImages();
+        }
+    });
+    $('#next-image-page').on('click', function () {
+        imageLibraryState.page += 1;
+        loadImages();
+    });
+    $('#image-grid').on('click', '.bind-image-action', function () {
+        var imageId = validRecordId($(this).data('image-id'));
+        if (imageId !== null) {
+            openBindModal(imageId, $(this).closest('.card-body').find('.card-title').text() || '未命名图像');
+        }
+    });
+    $('#image-grid').on('click', '.delete-image-action', function () {
+        var imageId = validRecordId($(this).data('image-id'));
+        if (imageId !== null) {
+            openDeleteModal(imageId, $(this).closest('.card-body').find('.card-title').text() || '未命名图像');
+        }
+    });
+    $('#bind-image-submit').on('click', function () {
+        var imageId = validRecordId($('#bind-image-modal').data('image-id'));
+        var studentId = validRecordId($('#bind-student-select').val());
+        if (imageId === null || studentId === null) {
+            showAlert('warning', '请选择要关联的学生');
+            return;
+        }
+        bindImage(imageId, studentId, false);
+    });
+    $('#replace-confirmation-submit').on('click', function () {
+        var $modal = $('#replace-confirmation-modal');
+        var imageId = validRecordId($modal.data('image-id'));
+        var studentId = validRecordId($modal.data('student-id'));
+        if (imageId !== null && studentId !== null) {
+            bindImage(imageId, studentId, true);
+        }
+    });
+    $('#delete-image-submit').on('click', function () {
+        var imageId = validRecordId($('#delete-image-modal').data('image-id'));
+        if (imageId !== null) {
+            deleteImage(imageId);
+        }
+    });
+
+    refreshLibrary();
+});
+</script>
+{% endblock %}

@@ -13,6 +13,7 @@ from models import (
     WarningRecord,
     StudentAssignmentDetail,
     StudentAssignmentChallenge,
+    StudentImage,
 )
 from services.knowledge_order import extract_knowledge_sequence, knowledge_name_sort_key
 
@@ -75,51 +76,51 @@ def _summarize_assignments(assignments: List[Dict]) -> Dict:
 class StudentRepository:
     """
     学生数据访问层
-    
+
     提供学生相关的数据库操作
     """
-    
+
     @staticmethod
     def get_by_id(student_id: int, class_id: int) -> Optional[Student]:
         """根据ID获取学生"""
         return Student.query.filter_by(id=student_id, class_id=class_id).first()
-    
+
     @staticmethod
     def get_by_student_no(student_no: str) -> Optional[Student]:
         """根据学号获取学生"""
         return Student.get_by_student_no(student_no)
-    
+
     @staticmethod
     def get_all(class_id: int) -> List[Student]:
         """获取所有学生"""
         return Student.query.filter_by(class_id=class_id).all()
-    
+
     @staticmethod
     def get_with_details(student_id: int, class_id: int) -> Optional[Dict]:
         """
         获取学生详细信息（包含关联数据）
-        
+
         Args:
             student_id: 学生ID
-            
+
         Returns:
             学生详情字典
         """
         student = Student.query.filter_by(id=student_id, class_id=class_id).first()
-        
+
         if not student:
             return None
-        
+
         result = student.to_dict()
-        
+
         # 添加行为数据
         if student.behavior:
             result['behavior'] = student.behavior.to_dict()
-        
+
         # 添加实践数据
         if student.practice:
             result['practice'] = student.practice.to_dict()
-        
+
         # 添加预警信息
         latest_warning = next(iter(student.warnings), None)
         if latest_warning:
@@ -127,7 +128,7 @@ class StudentRepository:
 
         result['theory_practice'] = StudentRepository.get_theory_practice(student_id, class_id)
         result['profile_metrics'] = StudentRepository.get_profile_metrics(student_id, class_id)
-        
+
         return result
 
     @staticmethod
@@ -201,22 +202,22 @@ class StudentRepository:
             'avg_assignment_score': avg_assignment_score,
             'high_retry_count': high_retry_count
         }
-    
+
     @staticmethod
     def get_full_overview(student_id: int, class_id: int) -> Optional[Dict]:
         """
         获取学生全览数据，聚合所有平台数据
-        
+
         Args:
             student_id: 学生ID
-            
+
         Returns:
             全览数据字典
         """
         student = Student.query.filter_by(id=student_id, class_id=class_id).first()
         if not student:
             return None
-        
+
         result = {
             'basic': {
                 'id': student.id,
@@ -224,28 +225,29 @@ class StudentRepository:
                 'name': student.name,
                 'class_name': student.class_info.class_name if student.class_info else None,
                 'major': student.major,
+                'avatar_url': student.image.media_url if student.image else None,
                 'created_at': student.created_at.strftime('%Y-%m-%d %H:%M:%S') if student.created_at else None,
                 'updated_at': student.updated_at.strftime('%Y-%m-%d %H:%M:%S') if student.updated_at else None
             }
         }
-        
+
         # 行为数据
         if student.behavior:
             result['behavior'] = student.behavior.to_dict()
         else:
             result['behavior'] = None
-        
+
         # 实践数据
         if student.practice:
             result['practice'] = student.practice.to_dict()
         else:
             result['practice'] = None
-        
+
         # 知识点掌握数据（按掌握率排序）
         masteries = StudentKnowledgeMastery.query.filter_by(
             student_id=student_id
         ).order_by(StudentKnowledgeMastery.mastery_rate.asc()).all()
-        
+
         knowledge_overview = {
             'all_points': [],
             'weak_points': [],
@@ -261,7 +263,7 @@ class StudentRepository:
             'overall_completion_rate': None,
             'overall_correct_rate': None
         }
-        
+
         if masteries:
             weak_threshold = 60
             for m in masteries:
@@ -278,7 +280,7 @@ class StudentRepository:
                 knowledge_overview['all_points'].append(point)
                 if m.mastery_rate < weak_threshold:
                     knowledge_overview['weak_points'].append(point)
-            
+
             knowledge_overview['all_points'].sort(
                 key=lambda point: knowledge_name_sort_key(point.get('knowledge_name', ''))
             )
@@ -296,9 +298,9 @@ class StudentRepository:
                 'avg_completion_rate': round(sum((p.get('completion_rate') or 0) for p in completion_points) / len(completion_points), 2) if completion_points else None,
                 'avg_correct_rate': round(sum((p.get('correct_rate') or 0) for p in correct_points) / len(correct_points), 2) if correct_points else None
             }
-        
+
         result['knowledge'] = knowledge_overview
-        
+
         # 预警信息
         warnings = WarningRecord.get_by_student_id(student_id)
         result['warnings'] = [w.to_dict() for w in warnings]
@@ -314,32 +316,32 @@ class StudentRepository:
             }
         else:
             result['warning'] = None
-        
+
         # 作业明细（导入时已落库，请求时直接从数据库读取）
         result['assignments'] = _read_educoder_assignment_details(student.id)
         result['assignment_summary'] = _summarize_assignments(result['assignments'])
-        
+
         result['theory_practice'] = StudentRepository.get_theory_practice(student_id, class_id)
         result['profile_metrics'] = StudentRepository.get_profile_metrics(student_id, class_id)
-        
+
         return result
-    
+
     @staticmethod
     def get_count(class_id: int) -> int:
         """获取学生数量"""
         return db.session.query(func.count(Student.id)).filter(
             Student.class_id == class_id
         ).scalar() or 0
-    
+
     @staticmethod
     def search(keyword: str, class_id: int, limit: int = 20) -> List[Student]:
         """
         搜索学生（按学号或姓名）
-        
+
         Args:
             keyword: 搜索关键词
             limit: 返回数量
-            
+
         Returns:
             学生列表
         """
@@ -350,20 +352,20 @@ class StudentRepository:
                 Student.name.like(f'%{keyword}%')
             )
         ).limit(limit).all()
-    
+
     @staticmethod
-    def create(student_no: str, name: str, 
+    def create(student_no: str, name: str,
                class_id: Optional[int] = None,
                major: Optional[str] = None) -> Student:
         """
         创建学生
-        
+
         Args:
             student_no: 学号
             name: 姓名
             class_id: 班级ID
             major: 专业
-            
+
         Returns:
             学生对象
         """
@@ -375,31 +377,31 @@ class StudentRepository:
         )
         student.save()
         return student
-    
+
     @staticmethod
     def update(student_id: int, **kwargs) -> Optional[Student]:
         """
         更新学生信息
-        
+
         Args:
             student_id: 学生ID
             **kwargs: 更新字段
-            
+
         Returns:
             更新后的学生对象
         """
         student = Student.query.get(student_id)
-        
+
         if not student:
             return None
-        
+
         for key, value in kwargs.items():
             if hasattr(student, key):
                 setattr(student, key, value)
-        
+
         db.session.commit()
         return student
-    
+
     @staticmethod
     def delete(student_id: int, class_id: int) -> Optional[Dict]:
         """原子删除当前班级的学生及全部学生级关联数据。"""
@@ -414,6 +416,14 @@ class StudentRepository:
         }
 
         try:
+            image = StudentImage.query.filter_by(
+                student_id=student.id,
+                class_id=class_id,
+            ).first()
+            if image:
+                image.student_id = None
+                image.match_status = 'pending'
+                image.match_message = '学生已删除，等待重新关联'
             StudentAssignmentChallenge.query.filter_by(student_id=student.id).delete(
                 synchronize_session=False
             )

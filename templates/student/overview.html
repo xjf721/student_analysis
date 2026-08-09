@@ -47,6 +47,60 @@
     .progress-cell {
         min-width: 120px;
     }
+    .student-overview-header {
+        display: grid;
+        grid-template-columns: 160px minmax(0, 1fr) auto;
+        gap: 24px;
+        align-items: start;
+        padding: 20px;
+    }
+    .student-overview-portrait {
+        display: flex;
+        justify-content: center;
+    }
+    .student-avatar,
+    .student-avatar-default {
+        width: 132px;
+        height: 166px;
+        border-radius: 8px;
+    }
+    .student-avatar {
+        display: block;
+        object-fit: cover;
+        border: 1px solid #dee2e6;
+        background: #f8f9fa;
+    }
+    .student-avatar-default {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #e9ecef;
+        color: #6c757d;
+        font-size: 42px;
+        font-weight: 600;
+        border: 1px dashed #adb5bd;
+    }
+    .student-overview-info {
+        min-width: 0;
+    }
+    .student-overview-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 132px;
+    }
+    @media (max-width: 767.98px) {
+        .student-overview-header {
+            grid-template-columns: 1fr;
+        }
+        .student-overview-portrait {
+            justify-content: flex-start;
+        }
+        .student-overview-actions {
+            flex-direction: row;
+            flex-wrap: wrap;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -82,11 +136,35 @@
                         </div>
                     </div>
                     <div class="card-body p-0">
-                        <table class="table table-bordered detail-table mb-0">
-                            <tbody id="basic-table">
-                                <tr><td class="empty-row" colspan="2">加载中...</td></tr>
-                            </tbody>
-                        </table>
+                        <div class="student-overview-header">
+                            <div class="student-overview-portrait">
+                                <img id="student-avatar" class="student-avatar d-none"
+                                     alt="学生照片">
+                                <div id="student-avatar-default" class="student-avatar-default"
+                                     aria-label="默认头像">--</div>
+                            </div>
+                            <div class="student-overview-info">
+                                <h4 id="student-name" class="mb-3">--</h4>
+                                <table class="table table-bordered detail-table mb-0">
+                                    <tbody id="basic-table">
+                                        <tr><td class="empty-row" colspan="2">加载中...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="student-overview-actions">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-primary avatar-library-open">
+                                    从图像库选择
+                                </button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary avatar-local-upload-button">
+                                    本地上传
+                                </button>
+                                <a class="btn btn-sm btn-outline-info" id="overview-detail-link" href="#">
+                                    返回画像
+                                </a>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -251,14 +329,24 @@
         </div>
     </div>
 </section>
+{% include 'student/_avatar_modal.html' %}
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/student_avatar.js') }}"></script>
 <script>
 $(function() {
     var studentId = '{{ student_id }}';
+    var avatarControl = StudentAvatar.mount({
+        studentId: studentId,
+        avatarSelector: '#student-avatar',
+        defaultSelector: '#student-avatar-default',
+        nameSelector: '#student-name'
+    });
 
-    $('#breadcrumb-detail, #detail-link').attr('href', '/student/' + studentId);
+    $('#breadcrumb-detail, #detail-link, #overview-detail-link').attr(
+        'href', '/student/' + studentId
+    );
     loadAllData();
 
     $(document).on('click', '.toggle-challenges', function() {
@@ -327,9 +415,10 @@ $(function() {
     }
 
     function renderBasicInfo(basic) {
+        $('#student-name').text(display(basic.name));
+        avatarControl.render(basic.avatar_url, basic.name);
         renderKeyValue('#basic-table', [
             ['学号', basic.student_no],
-            ['姓名', basic.name],
             ['班级', basic.class_name],
             ['专业', basic.major],
             ['创建时间', basic.created_at],
